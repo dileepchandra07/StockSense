@@ -170,8 +170,15 @@ tested without Flask, SQLite or HTTP in the way.
 
 | | |
 | --- | --- |
-| ![Products](docs/screenshots/products.png) | ![Document detail](docs/screenshots/document-detail.png) |
-| ![Move history](docs/screenshots/move-history.png) | ![Warehouses](docs/screenshots/warehouses.png) |
+| ![Operations](docs/screenshots/operations.png) | ![Document detail](docs/screenshots/document-detail.png) |
+| ![Delivery in draft](docs/screenshots/delivery-draft.png) | ![Products](docs/screenshots/products.png) |
+| ![Product detail](docs/screenshots/product-detail.png) | ![Move history](docs/screenshots/move-history.png) |
+| ![Warehouses](docs/screenshots/warehouses.png) | ![Sign in](docs/screenshots/login.png) |
+
+Every timestamp in those images is rendered in the configured display timezone
+(`DISPLAY_TZ`, IST by default) from UTC stored in the database. The demo data
+spans three weeks of weekday activity — see `app/seed.py` for how the clock is
+pinned to build that history without rewriting a single ledger row.
 
 ## Team
 
