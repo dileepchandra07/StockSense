@@ -160,7 +160,9 @@ tested without Flask, SQLite or HTTP in the way.
 | --- | --- |
 | [`docs/domain-model.md`](docs/domain-model.md) | Entities, move kinds, status workflow, invariants |
 | [`docs/architecture.md`](docs/architecture.md) | Layering, module boundaries, stack decision |
+| [`docs/DESIGN-RATIONALE.md`](docs/DESIGN-RATIONALE.md) | Why the design is this way, and where it is weak |
 | [`docs/roadmap.md`](docs/roadmap.md) | Phases, workstreams, demo script |
+| [`docs/SUBMISSION.md`](docs/SUBMISSION.md) | Hackathon submission checklist |
 | [`spec/openapi.yaml`](spec/openapi.yaml) | REST contract |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branch strategy, commit conventions, PR flow |
 
