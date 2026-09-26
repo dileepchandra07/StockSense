@@ -130,18 +130,19 @@ That is the layer to read if you want to understand the system.
 │   ├── views_settings.py      # warehouses and locations
 │   ├── seed.py                # demo dataset
 │   ├── templates/             # Jinja2
-│   └── static/css/app.css     # the whole stylesheet
-├── tests/test_app.py          # 78 end-to-end tests
+│   └── static/                # stylesheet, favicon
+├── tests/test_app.py          # 138 end-to-end tests
 ├── reference/                 # standalone domain spec, stdlib only
-├── docs/                      # domain model, architecture, roadmap
+├── docs/                      # domain model, architecture, roadmap, demo script
 ├── spec/openapi.yaml          # REST contract
+├── Procfile                   # gunicorn start command
 └── run.py
 ```
 
 ## Tests
 
 ```bash
-python -m unittest discover -s tests     # 133 application tests
+python -m unittest discover -s tests     # 138 application tests
 cd reference && python -m unittest       # 53 domain invariant tests
 ```
 
@@ -153,6 +154,38 @@ independently of any framework.
 `reference/` is a standalone, dependency-free implementation of the domain with
 its own test suite. It exists so the inventory rules can be reasoned about and
 tested without Flask, SQLite or HTTP in the way.
+
+## Running it on a server
+
+The database file is not in the repository, so a fresh instance would come up
+empty. `AUTO_SEED=1` fixes that: on boot, if there are no products, the demo
+dataset is created. It never touches a populated database — check first, seed
+only when there is nothing to lose.
+
+```bash
+pip install -r requirements.txt
+PORT=8000 AUTO_SEED=1 SECRET_KEY="$(python -c 'import secrets;print(secrets.token_hex(32))')" \
+  gunicorn 'app:create_app()' --bind 0.0.0.0:$PORT --workers 1 --threads 4
+```
+
+The same command is in the [`Procfile`](Procfile) for platforms that read one.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `PORT` | `5000` | Port to serve on. `python run.py` binds `0.0.0.0` when this is set, loopback when it is not |
+| `SECRET_KEY` | dev placeholder | Session signing key. **Set this in any real deployment** |
+| `DATABASE` | `./stocksense.db` | Path to the SQLite file |
+| `AUTO_SEED` | `0` | Seed the demo dataset when the database is empty |
+| `DISPLAY_TZ` | `Asia/Kolkata` | Timezone timestamps are rendered in. Storage stays UTC |
+
+**One gunicorn worker, not four.** SQLite is a single file, and multiple
+processes writing to it buy lock contention rather than throughput. Threads
+give the concurrency.
+
+Two things this deployment is *not*: there is no mail service behind the OTP
+reset, and SQLite on an ephemeral filesystem is not durable storage. Both are
+fine for a demo and wrong for production — see
+[`docs/DESIGN-RATIONALE.md`](docs/DESIGN-RATIONALE.md) for the honest list.
 
 ## Documentation
 

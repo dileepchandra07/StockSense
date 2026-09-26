@@ -157,11 +157,11 @@ on the clock, which is a schedule decision rather than a technical one.
 
 ### How do you know the numbers are right?
 
-186 tests across two suites, and the split is deliberate:
+191 tests across two suites, and the split is deliberate:
 
 - **53 reference tests** pin the domain semantics with no framework involved. If
   these fail, the *rules* are wrong.
-- **133 application tests** drive the real Flask app against a throwaway database —
+- **138 application tests** drive the real Flask app against a throwaway database —
   every route, every workflow, every status transition — and re-check the domain
   invariants against real SQL. If these fail, the *wiring* is wrong.
 

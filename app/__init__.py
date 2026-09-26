@@ -44,6 +44,10 @@ def create_app(test_config=None) -> Flask:
         SECRET_KEY=os.environ.get("SECRET_KEY", "stocksense-dev-secret"),
         DATABASE=os.environ.get("DATABASE", str(BASE_DIR / "stocksense.db")),
         DISPLAY_TZ=os.environ.get("DISPLAY_TZ", DEFAULT_DISPLAY_TZ),
+        # Off by default so tests and development never seed behind your back.
+        # A deployment turns it on: the database file is not in the repository,
+        # so a fresh instance would otherwise come up empty.
+        AUTO_SEED=os.environ.get("AUTO_SEED", "0") == "1",
     )
     if test_config:
         app.config.update(test_config)
@@ -167,5 +171,10 @@ def create_app(test_config=None) -> Flask:
     # Create the schema on first boot so a fresh clone just works.
     with app.app_context():
         db_module.init_db()
+        if app.config.get("AUTO_SEED"):
+            from .seed import seed_if_empty
+
+            if seed_if_empty():
+                app.logger.info("Empty database — seeded the demo dataset.")
 
     return app

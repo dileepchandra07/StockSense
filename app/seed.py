@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import engine
 from .auth import hash_password
-from .db import execute, get_db, init_db
+from .db import execute, get_db, init_db, query
 
 DEMO_EMAIL = "admin@stocksense.dev"
 DEMO_PASSWORD = "demo1234"
@@ -426,6 +426,21 @@ def seed() -> None:
         created, validated = next_slot()
         _create("adjustment", status, header, lines, user_index=index,
                 created_at=created, validated_at=validated)
+
+
+def seed_if_empty() -> bool:
+    """Seed the demo dataset when the database has no products yet.
+
+    Exists so a fresh clone -- or a fresh deployment, where the database file
+    is not in the repository -- boots into a usable application rather than an
+    empty one. Checks first and returns without doing anything when there is
+    data, because ``seed()`` drops every table.
+    """
+    row = query("SELECT COUNT(*) AS n FROM products", one=True)
+    if row is not None and row["n"]:
+        return False
+    seed()
+    return True
 
 
 def main() -> None:

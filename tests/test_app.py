@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from app import create_app, engine
 from app.db import query
-from app.seed import DEMO_EMAIL, DEMO_PASSWORD, seed
+from app.seed import DEMO_EMAIL, DEMO_PASSWORD, seed, seed_if_empty
 from app.seed import _schedule as seed_schedule
 
 
@@ -1435,6 +1435,80 @@ class TestStatusDirection(BaseCase):
         )
         html = self.client.get(f"/documents/{row['id']}").get_data(as_text=True)
         self.assertIn("Removes the draft and its lines", html)
+
+
+# ---------------------------------------------------------------------------
+# First boot
+# ---------------------------------------------------------------------------
+
+
+class TestAutoSeed(BaseCase):
+    """A deployment has no database file, so it has to seed itself."""
+
+    def _missing_db(self):
+        """A path with nothing at it -- what a fresh server actually looks like."""
+        handle = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        handle.close()
+        os.unlink(handle.name)
+
+        def cleanup():
+            if os.path.exists(handle.name):
+                os.unlink(handle.name)
+
+        self.addCleanup(cleanup)
+        return handle.name
+
+    def _count(self, table):
+        return query(f"SELECT COUNT(*) AS n FROM {table}", one=True)["n"]
+
+    def test_auto_seed_fills_an_empty_database(self):
+        app = create_app({
+            "DATABASE": self._missing_db(), "TESTING": True, "AUTO_SEED": True,
+        })
+        with app.app_context():
+            self.assertGreater(self._count("products"), 0)
+            self.assertGreater(self._count("documents"), 0)
+            self.assertGreater(self._count("stock_moves"), 0)
+
+    def test_auto_seed_is_off_by_default(self):
+        """Tests and development must never seed behind your back."""
+        app = create_app({"DATABASE": self._missing_db(), "TESTING": True})
+        with app.app_context():
+            self.assertEqual(self._count("products"), 0)
+
+    def test_auto_seed_leaves_a_populated_database_alone(self):
+        """Booting twice must not wipe real data -- seed() drops every table."""
+        path = self._missing_db()
+        first = create_app({"DATABASE": path, "TESTING": True, "AUTO_SEED": True})
+        with first.app_context():
+            moves = self._count("stock_moves")
+            reference = query(
+                "SELECT reference FROM documents ORDER BY id LIMIT 1", one=True
+            )["reference"]
+
+        second = create_app({"DATABASE": path, "TESTING": True, "AUTO_SEED": True})
+        with second.app_context():
+            self.assertEqual(self._count("stock_moves"), moves)
+            self.assertEqual(
+                query("SELECT reference FROM documents ORDER BY id LIMIT 1", one=True)["reference"],
+                reference,
+            )
+
+    def test_seed_if_empty_reports_whether_it_seeded(self):
+        self.assertFalse(seed_if_empty(), "the database is already populated")
+
+    def test_auto_seeded_app_is_usable(self):
+        app = create_app({
+            "DATABASE": self._missing_db(), "TESTING": True, "AUTO_SEED": True,
+        })
+        client = app.test_client()
+        response = client.post(
+            "/login",
+            data={"email": DEMO_EMAIL, "password": DEMO_PASSWORD},
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Inventory Dashboard", response.data)
 
 
 if __name__ == "__main__":
