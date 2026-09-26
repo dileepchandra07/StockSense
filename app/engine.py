@@ -11,6 +11,7 @@ Two rules govern everything here:
 See ``docs/domain-model.md`` for the invariants these functions enforce.
 """
 
+import contextlib
 from datetime import datetime, timedelta, timezone
 
 from .db import execute, get_db, query
@@ -36,6 +37,40 @@ STATUS_LABELS = {
     "canceled": "Canceled",
 }
 
+# The state machine is identical for every document type -- only the words
+# change. The spec names the delivery flow pick / pack / validate, and nobody
+# in a warehouse says a receipt is "ready"; it is at the dock. Same states
+# underneath, labelled in the language of the person doing the work.
+#
+# Only the two middle states get type-specific words. draft / done / canceled
+# keep their canonical names so the status vocabulary stays greppable and
+# matches the filter list the spec defines.
+STATUS_VOCAB = {
+    "receipt":    {"waiting": "Awaiting goods", "ready": "At the dock"},
+    "delivery":   {"waiting": "Picked",         "ready": "Packed"},
+    "internal":   {"waiting": "Scheduled",      "ready": "Staged"},
+    "adjustment": {"waiting": "Counted",        "ready": "Ready to apply"},
+}
+
+# What the person is about to do, phrased as an instruction for the button.
+STATUS_ACTIONS = {
+    "receipt":    {"waiting": "Mark awaiting goods", "ready": "Mark at the dock"},
+    "delivery":   {"waiting": "Mark picked",         "ready": "Mark packed"},
+    "internal":   {"waiting": "Schedule transfer",   "ready": "Mark staged"},
+    "adjustment": {"waiting": "Submit count",        "ready": "Mark ready to apply"},
+}
+
+# The process in one line, in the words the spec uses for each document type.
+FLOW_HINTS = {
+    "receipt": "Add the supplier and the quantities received, then validate — "
+               "stock increases.",
+    "delivery": "Pick the items, pack them, then validate — stock decreases.",
+    "internal": "Choose a source and a destination, then validate — the total is "
+                "unchanged, only the location moves.",
+    "adjustment": "Enter the counted quantity. The difference between the count "
+                  "and the ledger is what gets recorded.",
+}
+
 # Statuses that mean "still in flight" -- what the dashboard counts as pending.
 OPEN_STATUSES = ("draft", "waiting", "ready")
 
@@ -50,8 +85,74 @@ class DomainError(Exception):
     """A business rule was violated. Message is safe to show the user."""
 
 
+# The override used by ``clock()``. None means "ask the operating system".
+_clock = None
+
+
 def now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    """The current UTC timestamp, as stored.
+
+    This is the single point where time enters the domain. Keeping it in one
+    place means the clock can be pinned -- which is how the seeder builds three
+    weeks of history without ever rewriting a ledger row after the fact.
+    """
+    if _clock is None:
+        moment = datetime.now(timezone.utc)
+    else:
+        moment = _clock()
+    return moment.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+@contextlib.contextmanager
+def clock(source):
+    """Pin ``now()`` for the duration of the block.
+
+    ``source`` is a zero-argument callable returning a datetime. Anything
+    written inside the block is stamped with it, so seeded history is real
+    history rather than a post-hoc edit. Restores the previous clock on exit,
+    including when the block raises.
+    """
+    global _clock
+    previous, _clock = _clock, source
+    try:
+        yield
+    finally:
+        _clock = previous
+
+
+# ---------------------------------------------------------------------------
+# Vocabulary helpers
+# ---------------------------------------------------------------------------
+
+
+def status_label(status: str, doc_type: str = None) -> str:
+    """The word for a status in this document type's own language.
+
+    Falls back to the canonical name, so an unknown type or a new status can
+    never render as blank.
+    """
+    if doc_type:
+        specific = STATUS_VOCAB.get(doc_type, {}).get(status)
+        if specific:
+            return specific
+    return STATUS_LABELS.get(status, status)
+
+
+def status_action(status: str, doc_type: str = None) -> str:
+    """The button text for moving a document into ``status``."""
+    if doc_type:
+        specific = STATUS_ACTIONS.get(doc_type, {}).get(status)
+        if specific:
+            return specific
+    if status == "draft":
+        return "Back to draft"
+    return f"Mark {STATUS_LABELS.get(status, status).lower()}"
+
+
+def status_flow(doc_type: str):
+    """The workflow strip for a document type, as (status, label) pairs."""
+    return [(status, status_label(status, doc_type))
+            for status in ("draft", "waiting", "ready", "done")]
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +368,17 @@ def list_documents(
                u.name  AS created_by_name,
                (SELECT COUNT(*) FROM document_lines dl WHERE dl.document_id = d.id) AS line_count,
                (SELECT COALESCE(SUM(dl.qty), 0) FROM document_lines dl
-                WHERE dl.document_id = d.id) AS total_qty
+                WHERE dl.document_id = d.id) AS total_qty,
+               -- An adjustment records a signed correction, not a count, so
+               -- summing its lines always gives zero. Read the delta back off
+               -- the ledger instead. NULL means "nothing recorded yet".
+               CASE WHEN d.doc_type = 'adjustment' AND d.status = 'done'
+                    THEN (SELECT COALESCE(SUM(
+                              CASE WHEN sm.src_location_id =
+                                        (SELECT id FROM locations WHERE code = '__adjustment__')
+                                   THEN sm.qty ELSE -sm.qty END), 0)
+                            FROM stock_moves sm WHERE sm.document_id = d.id)
+                    ELSE NULL END AS adjust_delta
         FROM documents d
         LEFT JOIN warehouses sw ON sw.id = d.src_warehouse_id
         LEFT JOIN warehouses dw ON dw.id = d.dst_warehouse_id

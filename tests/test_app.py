@@ -8,10 +8,14 @@ import os
 import re
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from app import create_app, engine
 from app.db import query
 from app.seed import DEMO_EMAIL, DEMO_PASSWORD, seed
+from app.seed import _schedule as seed_schedule
 
 
 class BaseCase(unittest.TestCase):
@@ -935,6 +939,502 @@ class TestInvariants(BaseCase):
             for level in engine.stock_levels()
         )
         self.assertAlmostEqual(engine.inventory_value(), expected, places=2)
+
+
+# ---------------------------------------------------------------------------
+# Time: storage is UTC, display is local, and seeded history is real
+# ---------------------------------------------------------------------------
+
+
+class TestDisplayTime(BaseCase):
+    """Timestamps are stored naive-UTC and rendered in the display zone."""
+
+    def test_utc_is_converted_to_the_display_zone(self):
+        localtime = self.app.jinja_env.filters["localtime"]
+        # 09:22 UTC is 14:52 in IST -- the offset the raw string used to hide.
+        self.assertEqual(localtime("2026-09-26 09:22:00"), "26 Sep 2026, 14:52")
+
+    def test_accepts_an_explicit_format(self):
+        localtime = self.app.jinja_env.filters["localtime"]
+        self.assertEqual(localtime("2026-09-26 09:22:00", "%H:%M"), "14:52")
+        self.assertEqual(localtime("2026-09-26 09:22:00", "%Y-%m-%d"), "2026-09-26")
+
+    def test_conversion_crosses_a_date_boundary(self):
+        localtime = self.app.jinja_env.filters["localtime"]
+        # 20:00 UTC is 01:30 the next day in IST.
+        self.assertEqual(localtime("2026-09-26 20:00:00", "%d %b %H:%M"), "27 Sep 01:30")
+
+    def test_empty_and_unparseable_values_do_not_raise(self):
+        localtime = self.app.jinja_env.filters["localtime"]
+        self.assertEqual(localtime(None), "—")
+        self.assertEqual(localtime(""), "—")
+        self.assertEqual(localtime("not a date"), "not a date")
+
+    def test_display_zone_is_configurable(self):
+        utc_app = create_app({
+            "DATABASE": self.db_path, "TESTING": True, "DISPLAY_TZ": "UTC",
+        })
+        with utc_app.app_context():
+            self.assertEqual(
+                utc_app.jinja_env.filters["localtime"]("2026-09-26 09:22:00", "%H:%M"),
+                "09:22",
+            )
+
+    def test_an_unusable_zone_falls_back_to_utc_instead_of_erroring(self):
+        bad_app = create_app({
+            "DATABASE": self.db_path, "TESTING": True, "DISPLAY_TZ": "Not/AZone",
+        })
+        with bad_app.app_context():
+            self.assertEqual(
+                bad_app.jinja_env.filters["localtime"]("2026-09-26 09:22:00", "%H:%M"),
+                "09:22",
+            )
+
+    def test_ago_buckets(self):
+        ago = self.app.jinja_env.filters["ago"]
+        now = datetime.now(timezone.utc)
+
+        def stamp(delta):
+            return (now - delta).strftime("%Y-%m-%d %H:%M:%S")
+
+        self.assertEqual(ago(stamp(timedelta(seconds=5))), "just now")
+        self.assertEqual(ago(stamp(timedelta(minutes=20))), "20 min ago")
+        self.assertEqual(ago(stamp(timedelta(hours=1))), "1 hr ago")
+        self.assertEqual(ago(stamp(timedelta(hours=5))), "5 hrs ago")
+        self.assertEqual(ago(stamp(timedelta(days=1))), "1 day ago")
+        self.assertEqual(ago(stamp(timedelta(days=3))), "3 days ago")
+        self.assertEqual(ago(None), "—")
+
+    def test_no_template_prints_a_raw_timestamp(self):
+        """The bug this guards against: slicing the stored string straight out."""
+        templates = Path(__file__).resolve().parent.parent / "app" / "templates"
+        offenders = []
+        for path in templates.rglob("*.html"):
+            text = path.read_text()
+            for match in re.finditer(r"(created_at|validated_at)\s*'?\]?\s*\[:\d+\]", text):
+                offenders.append(f"{path.name}: {match.group(0)}")
+        self.assertEqual(offenders, [], f"raw timestamp slicing: {offenders}")
+
+
+class TestSeededHistory(BaseCase):
+    """The demo dataset is a believable three weeks, not one frozen moment."""
+
+    def _documents(self):
+        return query("SELECT * FROM documents ORDER BY created_at")
+
+    def test_history_is_spread_not_a_single_timestamp(self):
+        stamps = {row["created_at"] for row in self._documents()}
+        self.assertGreater(len(stamps), 10, "seed data is all one timestamp")
+
+    def test_history_is_chronological_in_creation_order(self):
+        """A delivery is never dated before the receipt that supplied it."""
+        rows = query("SELECT id, created_at, doc_type FROM documents ORDER BY id")
+        for earlier, later in zip(rows, rows[1:]):
+            self.assertLessEqual(earlier["created_at"], later["created_at"])
+
+    def test_validated_documents_are_stamped_after_creation(self):
+        rows = query(
+            "SELECT reference, created_at, validated_at FROM documents WHERE status = 'done'"
+        )
+        self.assertTrue(rows, "expected some done documents in the seed")
+        for row in rows:
+            self.assertIsNotNone(row["validated_at"], row["reference"])
+            self.assertGreaterEqual(row["validated_at"], row["created_at"], row["reference"])
+
+    def test_open_documents_are_never_validated(self):
+        rows = query(
+            "SELECT reference, validated_at FROM documents WHERE status != 'done'"
+        )
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertIsNone(row["validated_at"], row["reference"])
+
+    def test_history_lands_on_weekdays(self):
+        """A receipt booked at 03:00 on a Sunday reads as fixture data."""
+        for row in self._documents():
+            day = datetime.strptime(row["created_at"], "%Y-%m-%d %H:%M:%S")
+            self.assertLess(day.weekday(), 5, f"{row['reference']} on {day:%A}")
+
+    def test_history_stays_in_the_past(self):
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for row in self._documents():
+            day = datetime.strptime(row["created_at"], "%Y-%m-%d %H:%M:%S")
+            self.assertLess(day, now, row["reference"])
+            if row["validated_at"]:
+                validated = datetime.strptime(row["validated_at"], "%Y-%m-%d %H:%M:%S")
+                self.assertLess(validated, now, row["reference"])
+
+    def test_every_move_is_dated_at_or_after_its_document(self):
+        rows = query(
+            """SELECT m.reference, m.created_at AS move_at, d.created_at AS doc_at
+               FROM stock_moves m JOIN documents d ON d.id = m.document_id"""
+        )
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertGreaterEqual(row["move_at"], row["doc_at"], row["reference"])
+
+    def test_the_schedule_is_deterministic(self):
+        """Fixed seed, so a re-seed reproduces the same story."""
+        first = seed_schedule(21, end=datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc))
+        second = seed_schedule(21, end=datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc))
+        self.assertEqual(first, second)
+
+    def test_master_data_predates_the_first_document(self):
+        first_document = query(
+            "SELECT MIN(created_at) AS m FROM documents", one=True
+        )["m"]
+        for table in ("products", "warehouses", "users"):
+            earliest = query(f"SELECT MIN(created_at) AS m FROM {table}", one=True)["m"]
+            self.assertLess(earliest, first_document, table)
+
+
+class TestClock(BaseCase):
+    """``engine.now`` is the single seam where time enters the domain."""
+
+    def test_clock_pins_now(self):
+        pinned = datetime(2020, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+        with engine.clock(lambda: pinned):
+            self.assertEqual(engine.now(), "2020-01-02 03:04:05")
+
+    def test_clock_restores_the_real_one_on_exit(self):
+        before = engine.now()
+        with engine.clock(lambda: datetime(2020, 1, 2, tzinfo=timezone.utc)):
+            pass
+        after = engine.now()
+        self.assertNotEqual(after, "2020-01-02 00:00:00")
+        self.assertGreaterEqual(after, before)
+
+    def test_clock_restores_even_when_the_block_raises(self):
+        with self.assertRaises(RuntimeError):
+            with engine.clock(lambda: datetime(2020, 1, 2, tzinfo=timezone.utc)):
+                raise RuntimeError("boom")
+        self.assertNotEqual(engine.now(), "2020-01-02 00:00:00")
+
+    def test_a_document_created_under_a_pinned_clock_keeps_that_date(self):
+        pinned = datetime(2021, 6, 7, 8, 9, 10, tzinfo=timezone.utc)
+        with engine.clock(lambda: pinned):
+            document_id = engine.create_document(
+                doc_type="receipt", user_id=1, dst_warehouse_id=1, supplier="Test"
+            )
+        row = query("SELECT created_at FROM documents WHERE id = ?", (document_id,), one=True)
+        self.assertEqual(row["created_at"], "2021-06-07 08:09:10")
+
+    def test_now_is_always_utc_regardless_of_the_pinned_zone(self):
+        """A clock returning local time must still be stored as UTC."""
+        ist = ZoneInfo("Asia/Kolkata")
+        local_moment = datetime(2026, 9, 26, 14, 52, tzinfo=ist)
+        with engine.clock(lambda: local_moment):
+            self.assertEqual(engine.now(), "2026-09-26 09:22:00")
+
+
+# ---------------------------------------------------------------------------
+# Status vocabulary: one state machine, the words each job uses
+# ---------------------------------------------------------------------------
+
+
+class TestStatusVocabulary(BaseCase):
+    """The spec names the delivery flow pick / pack / validate."""
+
+    def test_delivery_states_read_as_picked_and_packed(self):
+        self.assertEqual(engine.status_label("waiting", "delivery"), "Picked")
+        self.assertEqual(engine.status_label("ready", "delivery"), "Packed")
+
+    def test_each_type_gets_its_own_middle_states(self):
+        self.assertEqual(engine.status_label("waiting", "receipt"), "Awaiting goods")
+        self.assertEqual(engine.status_label("ready", "receipt"), "At the dock")
+        self.assertEqual(engine.status_label("waiting", "internal"), "Scheduled")
+        self.assertEqual(engine.status_label("ready", "internal"), "Staged")
+
+    def test_canonical_states_keep_their_names_in_every_type(self):
+        """draft / done / canceled must stay greppable and match the filter list."""
+        for doc_type in engine.DOC_TYPES:
+            for status in ("draft", "done", "canceled"):
+                self.assertEqual(
+                    engine.status_label(status, doc_type),
+                    engine.STATUS_LABELS[status],
+                    f"{doc_type}/{status}",
+                )
+
+    def test_label_falls_back_without_a_document_type(self):
+        self.assertEqual(engine.status_label("waiting"), "Waiting")
+        self.assertEqual(engine.status_label("ready"), "Ready")
+
+    def test_an_unknown_type_or_status_never_renders_blank(self):
+        self.assertEqual(engine.status_label("waiting", "not_a_type"), "Waiting")
+        self.assertEqual(engine.status_label("mystery", "delivery"), "mystery")
+
+    def test_every_open_status_has_an_action_for_every_type(self):
+        for doc_type in engine.DOC_TYPES:
+            for status in ("draft", "waiting", "ready"):
+                action = engine.status_action(status, doc_type)
+                self.assertTrue(action and action.strip(), f"{doc_type}/{status}")
+
+    def test_flow_is_the_four_state_chain(self):
+        flow = engine.status_flow("delivery")
+        self.assertEqual([status for status, _ in flow],
+                         ["draft", "waiting", "ready", "done"])
+        self.assertEqual([label for _, label in flow],
+                         ["Draft", "Picked", "Packed", "Done"])
+
+    def test_delivery_page_shows_the_pick_pack_flow(self):
+        self.sign_in()
+        row = query(
+            "SELECT id FROM documents WHERE doc_type = 'delivery' AND status = 'ready'",
+            one=True,
+        )
+        self.assertIsNotNone(row, "seed should contain a ready delivery")
+        html = self.client.get(f"/documents/{row['id']}").get_data(as_text=True)
+        self.assertIn("Picked", html)
+        self.assertIn("Packed", html)
+
+    def test_delivery_draft_offers_pick_and_pack_actions(self):
+        self.sign_in()
+        row = query(
+            "SELECT id FROM documents WHERE doc_type = 'delivery' AND status = 'draft'",
+            one=True,
+        )
+        self.assertIsNotNone(row, "seed should contain a draft delivery")
+        html = self.client.get(f"/documents/{row['id']}").get_data(as_text=True)
+        self.assertIn("Mark picked", html)
+        self.assertIn("Mark packed", html)
+
+    def test_status_filter_keeps_the_canonical_names(self):
+        """The filter is cross-type, so it must not speak one document's language."""
+        self.sign_in()
+        html = self.client.get("/operations").get_data(as_text=True)
+        for label in ("Draft", "Waiting", "Ready", "Done", "Canceled"):
+            self.assertIn(label, html)
+
+    def test_receipt_page_does_not_borrow_delivery_words(self):
+        self.sign_in()
+        row = query(
+            "SELECT id FROM documents WHERE doc_type = 'receipt' AND status = 'ready'",
+            one=True,
+        )
+        html = self.client.get(f"/documents/{row['id']}").get_data(as_text=True)
+        self.assertIn("At the dock", html)
+        self.assertNotIn("Packed", html)
+
+
+# ---------------------------------------------------------------------------
+# Assets and print
+# ---------------------------------------------------------------------------
+
+
+class TestAssets(BaseCase):
+    def test_favicon_is_served_as_svg(self):
+        response = self.client.get("/static/favicon.svg")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("image/svg", response.headers["Content-Type"])
+        self.assertIn(b"<svg", response.data)
+
+    def test_stylesheet_is_served(self):
+        response = self.client.get("/static/css/app.css")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/css", response.headers["Content-Type"])
+
+    def test_pages_link_the_favicon(self):
+        for path in ("/login", "/signup"):
+            html = self.client.get(path).get_data(as_text=True)
+            self.assertIn("favicon.svg", html, path)
+
+    def test_no_page_links_a_missing_stylesheet(self):
+        """A 404 on a stylesheet silently ruins the layout."""
+        self.sign_in()
+        for path in ("/", "/products", "/operations", "/operations/moves"):
+            html = self.client.get(path).get_data(as_text=True)
+            for href in re.findall(r'<link[^>]+href="([^"]+)"', html):
+                if href.startswith("/static/"):
+                    self.assertEqual(
+                        self.client.get(href).status_code, 200, f"{path} -> {href}"
+                    )
+
+
+class TestPrintStylesheet(BaseCase):
+    """A pick list has to survive being printed and carried into an aisle."""
+
+    @property
+    def css(self):
+        return (
+            Path(__file__).resolve().parent.parent / "app" / "static" / "css" / "app.css"
+        ).read_text()
+
+    def test_print_block_exists(self):
+        self.assertIn("@media print", self.css)
+
+    def test_print_hides_the_application_chrome(self):
+        block = self.css.split("@media print", 1)[1]
+        for selector in (".sidebar", ".topbar-actions", ".card-foot", ".btn"):
+            self.assertIn(selector, block, selector)
+
+    def test_print_repeats_table_headings_across_pages(self):
+        block = self.css.split("@media print", 1)[1]
+        self.assertIn("table-header-group", block)
+
+    def test_print_only_and_pick_cell_are_hidden_on_screen(self):
+        screen = self.css.split("@media print", 1)[0]
+        self.assertIn(".print-only { display: none; }", screen)
+        self.assertIn(".pick-cell { display: none; }", screen)
+
+    def test_document_pages_carry_a_print_header(self):
+        self.sign_in()
+        row = query("SELECT id FROM documents ORDER BY id LIMIT 1", one=True)
+        html = self.client.get(f"/documents/{row['id']}").get_data(as_text=True)
+        self.assertIn('class="print-only"', html)
+        # On paper there is no sidebar, so the sheet must name itself.
+        self.assertIn("Picked by", html)
+
+    def test_delivery_lines_get_a_tick_box_for_each_line(self):
+        self.sign_in()
+        row = query(
+            "SELECT id FROM documents WHERE doc_type = 'delivery' AND status = 'ready'",
+            one=True,
+        )
+        expected = query(
+            "SELECT COUNT(*) AS n FROM document_lines WHERE document_id = ?",
+            (row["id"],), one=True,
+        )["n"]
+        html = self.client.get(f"/documents/{row['id']}").get_data(as_text=True)
+        self.assertEqual(html.count('class="pick-box"'), expected)
+
+    def test_non_pickable_types_get_no_tick_boxes(self):
+        self.sign_in()
+        for doc_type in ("receipt", "adjustment"):
+            row = query(
+                "SELECT id FROM documents WHERE doc_type = ? ORDER BY id LIMIT 1",
+                (doc_type,), one=True,
+            )
+            html = self.client.get(f"/documents/{row['id']}").get_data(as_text=True)
+            self.assertNotIn('class="pick-box"', html, doc_type)
+
+
+# ---------------------------------------------------------------------------
+# Reading a document row correctly
+# ---------------------------------------------------------------------------
+
+
+class TestDocumentQuantity(BaseCase):
+    """An adjustment records a delta, so its line sum is always zero."""
+
+    def _rows(self):
+        return {row["reference"]: row for row in engine.list_documents()}
+
+    def test_a_done_adjustment_reports_its_signed_correction(self):
+        row = query(
+            "SELECT reference FROM documents WHERE doc_type = 'adjustment' AND status = 'done'",
+            one=True,
+        )["reference"]
+        self.assertLess(self._rows()[row]["adjust_delta"], 0,
+                        "the seeded adjustments are both damage write-offs")
+
+    def test_an_unvalidated_adjustment_reports_nothing(self):
+        row = query(
+            "SELECT reference FROM documents WHERE doc_type = 'adjustment' AND status != 'done'",
+            one=True,
+        )["reference"]
+        self.assertIsNone(self._rows()[row]["adjust_delta"])
+
+    def test_the_delta_agrees_with_the_ledger(self):
+        for row in engine.list_documents(doc_type="adjustment"):
+            if row["adjust_delta"] is None:
+                continue
+            moves = query(
+                "SELECT src_location_id, dst_location_id, qty FROM stock_moves WHERE document_id = ?",
+                (row["id"],),
+            )
+            expected = 0
+            for move in moves:
+                src = query(
+                    "SELECT kind FROM locations WHERE id = ?",
+                    (move["src_location_id"],), one=True,
+                )["kind"]
+                expected += move["qty"] if src == "adjustment" else -move["qty"]
+            self.assertEqual(row["adjust_delta"], expected, row["reference"])
+
+    def test_non_adjustments_still_report_their_line_total(self):
+        row = query(
+            "SELECT reference FROM documents WHERE doc_type = 'delivery' AND status = 'done'",
+            one=True,
+        )["reference"]
+        self.assertGreater(self._rows()[row]["total_qty"], 0)
+
+    def test_adjustment_rows_do_not_render_a_bare_zero(self):
+        self.sign_in()
+        html = self.client.get("/operations").get_data(as_text=True)
+        for row in engine.list_documents(doc_type="adjustment"):
+            self.assertNotIn(
+                f">{row['reference']}</a></td>\n        <td>Inventory Adjustment</td>",
+                html,
+            )
+        # The signed correction should be visible instead.
+        self.assertRegex(html, r"-[\d,.]+\s*</span>")
+
+    def test_draft_adjustment_row_shows_a_dash(self):
+        self.sign_in()
+        row = query(
+            "SELECT reference FROM documents WHERE doc_type = 'adjustment' AND status = 'draft'",
+            one=True,
+        )["reference"]
+        html = self.client.get("/operations").get_data(as_text=True)
+        self.assertIn(row, html)
+        self.assertIn("No correction recorded", html)
+
+
+class TestStatusDirection(BaseCase):
+    """Buttons must say which way the document is moving."""
+
+    def test_a_draft_delivery_offers_forward_actions(self):
+        self.sign_in()
+        row = query(
+            "SELECT id FROM documents WHERE doc_type = 'delivery' AND status = 'draft'",
+            one=True,
+        )
+        html = self.client.get(f"/documents/{row['id']}").get_data(as_text=True)
+        self.assertIn(">Mark picked<", html)
+        self.assertIn(">Mark packed<", html)
+        # Nothing to reverse: a draft is the first state.
+        self.assertNotIn("Back to draft", html)
+        self.assertNotIn("Back to picked", html)
+
+    def test_a_packed_delivery_offers_reversals(self):
+        self.sign_in()
+        row = query(
+            "SELECT id FROM documents WHERE doc_type = 'delivery' AND status = 'ready'",
+            one=True,
+        )
+        html = self.client.get(f"/documents/{row['id']}").get_data(as_text=True)
+        self.assertIn("Back to draft", html)
+        self.assertIn("Back to picked", html)
+        self.assertNotIn(">Mark picked<", html)
+
+    def test_a_scheduled_transfer_offers_one_of_each(self):
+        self.sign_in()
+        row = query(
+            "SELECT id FROM documents WHERE doc_type = 'internal' AND status = 'waiting'",
+            one=True,
+        )
+        html = self.client.get(f"/documents/{row['id']}").get_data(as_text=True)
+        self.assertIn("Back to draft", html)   # backwards
+        self.assertIn(">Mark staged<", html)   # forwards
+
+    def test_delete_copy_is_not_draft_specific_on_a_ready_document(self):
+        self.sign_in()
+        row = query(
+            "SELECT id FROM documents WHERE doc_type = 'delivery' AND status = 'ready'",
+            one=True,
+        )
+        html = self.client.get(f"/documents/{row['id']}").get_data(as_text=True)
+        self.assertIn("has not been validated", html)
+        self.assertNotIn("Removes the draft and its lines", html)
+
+    def test_delete_copy_is_draft_specific_on_a_draft(self):
+        self.sign_in()
+        row = query(
+            "SELECT id FROM documents WHERE doc_type = 'delivery' AND status = 'draft'",
+            one=True,
+        )
+        html = self.client.get(f"/documents/{row['id']}").get_data(as_text=True)
+        self.assertIn("Removes the draft and its lines", html)
 
 
 if __name__ == "__main__":

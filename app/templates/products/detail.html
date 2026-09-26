@@ -108,7 +108,7 @@
       {% for m in moves %}
       <tr>
         <td class="muted mono">{{ m['id'] }}</td>
-        <td class="small muted nowrap">{{ m['created_at'][:16] }}</td>
+        <td class="small muted nowrap" title="{{ m['created_at']|localtime('%d %b %Y, %H:%M:%S') }} {{ TZ_LABEL }}">{{ m['created_at']|localtime }}</td>
         <td>{{ ui.move_tag(m['kind']) }}</td>
         <td class="right strong">{{ m['qty']|qty }}</td>
         <td class="small">{{ ui.location(m['src_code'], m['src_kind']) }}</td>

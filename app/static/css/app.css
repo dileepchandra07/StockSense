@@ -591,3 +591,68 @@ select { cursor: pointer; }
   .sidebar-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .topbar, .content, .flashes { padding-left: 16px; padding-right: 16px; }
 }
+
+/* ==========================================================================
+   Print — a pick list for the warehouse floor, not a screenshot of the app.
+   .print-only and .pick-cell are screen-hidden and print-shown.
+   ========================================================================== */
+
+.print-only { display: none; }
+.pick-cell { display: none; }
+
+@media print {
+  :root {
+    --bg: #fff; --surface: #fff; --surface-alt: #fff;
+    --text: #000; --text-soft: #222; --muted: #555;
+    --border: #bbb; --border-strong: #888; --shadow: none; --shadow-lg: none;
+  }
+
+  html, body { background: #fff; color: #000; font-size: 11pt; }
+
+  /* Chrome that means nothing on paper. */
+  .sidebar,
+  .topbar-actions,
+  .flashes,
+  .card-foot,
+  .inline-form,
+  .btn,
+  .no-print { display: none !important; }
+
+  .shell { display: block; min-height: 0; }
+  .main { display: block; }
+  .topbar { padding: 0 0 6pt; border-bottom: 1.5pt solid #000; }
+  .topbar h1 { font-size: 16pt; }
+  .content { padding: 0; }
+
+  .print-only { display: block; }
+  .pick-cell { display: table-cell; }
+
+  .card {
+    border: 1pt solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .card + .card { margin-top: 10pt; }
+  .card-head { background: #f2f2f2; border-bottom: 1pt solid var(--border); }
+
+  /* Keep rows and definition blocks from splitting across pages, and repeat
+     the table headings on every page of a long pick list. */
+  thead { display: table-header-group; }
+  tr, .def { break-inside: avoid; }
+  .table tbody tr:hover { background: transparent; }
+
+  a { color: #000; text-decoration: none; }
+
+  /* A tick box is what makes a printed list usable in an aisle. */
+  .pick-box {
+    display: inline-block;
+    width: 11pt; height: 11pt;
+    border: 1pt solid #000;
+    vertical-align: middle;
+  }
+
+  .workflow-step { border-color: #999; }
+  .workflow-step.current { background: #000; color: #fff; }
+
+  @page { margin: 14mm; }
+}

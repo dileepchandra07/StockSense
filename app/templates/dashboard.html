@@ -132,11 +132,11 @@
       <tr>
         <td><a class="mono" href="{{ url_for('operations.detail', document_id=d['id']) }}">{{ d['reference'] }}</a></td>
         <td>{{ ui.doc_tag(d['doc_type']) }}</td>
-        <td>{{ ui.status_badge(d['status']) }}</td>
+        <td>{{ ui.status_badge(d['status'], d['doc_type']) }}</td>
         <td class="small">{{ ui.doc_route(d) }}</td>
         <td class="right">{{ d['line_count'] }}</td>
-        <td class="right strong">{{ d['total_qty']|qty }}</td>
-        <td class="small muted nowrap">{{ d['created_at'][:16] }}</td>
+        <td class="right strong">{{ ui.doc_qty(d) }}</td>
+        <td class="small muted nowrap">{{ d['created_at']|localtime }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -234,7 +234,7 @@
       {% for m in recent %}
       <tr>
         <td class="muted mono">{{ m['id'] }}</td>
-        <td class="small muted nowrap">{{ m['created_at'][:16] }}</td>
+        <td class="small muted nowrap" title="{{ m['created_at']|localtime('%d %b %Y, %H:%M:%S') }} {{ TZ_LABEL }}">{{ m['created_at']|ago }}</td>
         <td>{{ ui.move_tag(m['kind']) }}</td>
         <td><span class="sku">{{ m['sku'] }}</span></td>
         <td class="right strong">{{ m['qty']|qty }} <span class="muted small">{{ m['uom'] }}</span></td>

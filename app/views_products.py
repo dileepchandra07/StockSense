@@ -13,7 +13,7 @@ def _categories():
     return query("SELECT * FROM categories ORDER BY name")
 
 
-@bp.route("/")
+@bp.route("/", strict_slashes=False)
 @login_required
 def index():
     search = request.args.get("q", "").strip()

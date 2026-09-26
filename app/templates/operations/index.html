@@ -57,12 +57,12 @@
       <tr>
         <td><a class="mono" href="{{ url_for('operations.detail', document_id=d['id']) }}">{{ d['reference'] }}</a></td>
         <td>{{ ui.doc_tag(d['doc_type']) }}</td>
-        <td>{{ ui.status_badge(d['status']) }}</td>
+        <td>{{ ui.status_badge(d['status'], d['doc_type']) }}</td>
         <td class="small">{{ ui.doc_route(d) }}</td>
         <td class="right">{{ d['line_count'] }}</td>
-        <td class="right strong">{{ d['total_qty']|qty }}</td>
+        <td class="right strong">{{ ui.doc_qty(d) }}</td>
         <td class="small muted">{{ d['created_by_name'] or 'system' }}</td>
-        <td class="small muted nowrap">{{ d['created_at'][:16] }}</td>
+        <td class="small muted nowrap">{{ d['created_at']|localtime }}</td>
       </tr>
       {% endfor %}
     </tbody>

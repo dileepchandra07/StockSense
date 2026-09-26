@@ -10,9 +10,14 @@
      '__adjustment__': 'Adjustment',
    } %}
 
-{% macro status_badge(status) %}
-  <span class="badge status-{{ status }}">
-    <span class="badge-dot"></span>{{ STATUS_LABELS.get(status, status) }}
+{# The badge shows the document type's own word for the state -- "Picked" for a
+   delivery, "Awaiting goods" for a receipt -- with the canonical status in the
+   tooltip so the underlying vocabulary stays discoverable. #}
+{% macro status_badge(status, doc_type=None) %}
+  {% set label = status_label(status, doc_type) %}
+  <span class="badge status-{{ status }}"
+        title="{{ STATUS_LABELS.get(status, status) }}{% if label != STATUS_LABELS.get(status, status) %} — {{ DOC_TYPES[doc_type].label if doc_type in DOC_TYPES else doc_type }}{% endif %}">
+    <span class="badge-dot"></span>{{ label }}
   </span>
 {% endmacro %}
 
@@ -34,6 +39,21 @@
 
 {% macro move_tag(kind) %}
   <span class="tag tag-{{ TAG_CLASS.get(kind, '') }}">{{ DOC_TYPES[kind].label }}</span>
+{% endmacro %}
+
+{# The quantity a document row should show. An adjustment records a signed
+   correction rather than a count, so summing its lines always gives zero --
+   print the delta from the ledger, or a dash when nothing is recorded yet. #}
+{% macro doc_qty(d) %}
+  {%- if d['doc_type'] == 'adjustment' -%}
+    {%- if d['adjust_delta'] is none -%}
+      <span class="muted" title="No correction recorded — this adjustment has not been validated">—</span>
+    {%- else -%}
+      <span title="Correction written to the ledger">{{ '+' if d['adjust_delta'] > 0 else '' }}{{ d['adjust_delta']|qty }}</span>
+    {%- endif -%}
+  {%- else -%}
+    {{ d['total_qty']|qty }}
+  {%- endif -%}
 {% endmacro %}
 
 {# A location code, with virtual locations rendered as plain words. #}

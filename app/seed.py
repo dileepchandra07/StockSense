@@ -8,7 +8,15 @@ This wipes the database and rebuilds it. It is a demo seeder, not a migration.
 Documents are created through the real engine and validated through the real
 ``validate_document`` path, so the seeded ledger is produced by exactly the same
 code that runs in production. Nothing is hand-written into ``stock_moves``.
+
+The demo spans three weeks. History is *not* faked by editing timestamps
+afterwards -- that would mean rewriting the ledger, which the domain forbids.
+Instead the clock is pinned while each document is written, so every row is
+born with its historical date and the append-only invariant survives intact.
 """
+
+import random
+from datetime import datetime, timedelta, timezone
 
 from . import engine
 from .auth import hash_password
@@ -16,6 +24,12 @@ from .db import execute, get_db, init_db
 
 DEMO_EMAIL = "admin@stocksense.dev"
 DEMO_PASSWORD = "demo1234"
+
+# How far back the demo history reaches, and the seed that makes it repeatable.
+# Fixed so re-seeding reproduces the same story and screenshots do not drift.
+DEMO_WINDOW_DAYS = 21
+DEMO_SEED = 20260226
+BUSINESS_HOURS = (9, 17)
 
 # ---------------------------------------------------------------------------
 # Master data
@@ -157,6 +171,74 @@ ADJUSTMENTS = [
 
 
 # ---------------------------------------------------------------------------
+# The demo clock
+# ---------------------------------------------------------------------------
+
+
+def _schedule(count, *, end=None, window_days=DEMO_WINDOW_DAYS, seed=DEMO_SEED):
+    """Timestamps for ``count`` documents, oldest first, spread over the window.
+
+    Deterministic, so a re-seed reproduces the same history. Activity is
+    confined to weekday working hours -- a warehouse that books a receipt at
+    03:00 on a Sunday reads as fixture data, which is exactly the impression
+    a demo cannot afford.
+    """
+    rng = random.Random(seed)
+    end = end or datetime.now(timezone.utc)
+
+    days = [
+        (end - timedelta(days=offset)).date()
+        for offset in range(window_days, 0, -1)
+    ]
+    days = [day for day in days if day.weekday() < 5]
+
+    # Today joins the window only once enough of the working day has gone by
+    # for a timestamp to land safely in the past.
+    if end.weekday() < 5 and end.hour >= BUSINESS_HOURS[0] + 4:
+        days.append(end.date())
+
+    if not days:
+        days = [(end - timedelta(days=1)).date()]
+
+    # Hand each document a day. The index arithmetic is monotonic, so the
+    # creation order stays chronological -- a delivery is never dated before
+    # the receipt that supplied it.
+    buckets = [[] for _ in days]
+    for index in range(count):
+        buckets[index * len(days) // count].append(index)
+
+    moments = [None] * count
+    for day, indexes in zip(days, buckets):
+        latest = BUSINESS_HOURS[1]
+        if day == end.date():
+            latest = max(BUSINESS_HOURS[0], end.hour - 1)
+        hour = BUSINESS_HOURS[0]
+        for index in indexes:
+            moments[index] = datetime(
+                day.year, day.month, day.day,
+                min(hour, latest), rng.randrange(0, 60),
+                tzinfo=timezone.utc,
+            )
+            hour += rng.choice([1, 1, 2])
+    return moments
+
+
+def _validation_time(created, rng, *, ceiling):
+    """When a done document was validated.
+
+    Most are checked off in the same working session; the rest wait until the
+    next shift. Never lands in the future.
+    """
+    if rng.random() < 0.75:
+        stamp = created + timedelta(minutes=rng.choice([12, 25, 40, 55, 90, 130]))
+    else:
+        stamp = created + timedelta(
+            hours=rng.choice([16, 20, 24]), minutes=rng.randrange(0, 60)
+        )
+    return min(stamp, ceiling)
+
+
+# ---------------------------------------------------------------------------
 # Lookup helpers
 # ---------------------------------------------------------------------------
 
@@ -187,42 +269,50 @@ def _user_id(index: int) -> int:
     return rows[index % len(rows)]["id"]
 
 
-def _create(doc_type, status, header, lines, *, user_index=0):
-    """Create a document, add its lines, and validate it when the status says so."""
+def _create(doc_type, status, header, lines, *, user_index=0,
+            created_at=None, validated_at=None):
+    """Create a document, add its lines, and validate it when the status says so.
+
+    ``created_at`` / ``validated_at`` are injected by pinning ``engine.clock``,
+    so the document is *born* with its historical date. No row is edited
+    afterwards -- the ledger stays append-only.
+    """
     user_id = _user_id(user_index)
 
     # Adjustments name a single "warehouse"; the other types use src/dst.
     src_code = header.get("src") or header.get("warehouse")
 
-    document_id = engine.create_document(
-        doc_type=doc_type,
-        user_id=user_id,
-        supplier=header.get("supplier", ""),
-        src_warehouse_id=_warehouse_id(src_code) if src_code else None,
-        dst_warehouse_id=_warehouse_id(header["dst"]) if header.get("dst") else None,
-        notes=header.get("notes", ""),
-    )
+    with engine.clock(lambda: created_at):
+        document_id = engine.create_document(
+            doc_type=doc_type,
+            user_id=user_id,
+            supplier=header.get("supplier", ""),
+            src_warehouse_id=_warehouse_id(src_code) if src_code else None,
+            dst_warehouse_id=_warehouse_id(header["dst"]) if header.get("dst") else None,
+            notes=header.get("notes", ""),
+        )
 
-    for line in lines:
-        if doc_type == "adjustment":
-            engine.add_line(
-                document_id,
-                _product_id(line["sku"]),
-                qty=0,
-                counted_qty=line["counted"],
-                dst_location_id=_location_id(line["location"]),
-            )
-        else:
-            engine.add_line(
-                document_id,
-                _product_id(line["sku"]),
-                qty=line["qty"],
-                src_location_id=_location_id(line["src"]) if line.get("src") else None,
-                dst_location_id=_location_id(line["dst"]) if line.get("dst") else None,
-            )
+        for line in lines:
+            if doc_type == "adjustment":
+                engine.add_line(
+                    document_id,
+                    _product_id(line["sku"]),
+                    qty=0,
+                    counted_qty=line["counted"],
+                    dst_location_id=_location_id(line["location"]),
+                )
+            else:
+                engine.add_line(
+                    document_id,
+                    _product_id(line["sku"]),
+                    qty=line["qty"],
+                    src_location_id=_location_id(line["src"]) if line.get("src") else None,
+                    dst_location_id=_location_id(line["dst"]) if line.get("dst") else None,
+                )
 
     if status == "done":
-        engine.validate_document(document_id, user_id=user_id)
+        with engine.clock(lambda: validated_at):
+            engine.validate_document(document_id, user_id=user_id)
     else:
         engine.set_status(document_id, status)
 
@@ -258,57 +348,84 @@ def reset() -> None:
 def seed() -> None:
     reset()
 
-    for email, name, role in USERS:
-        execute(
-            """INSERT INTO users (email, name, role, password_hash, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (email, name, role, hash_password(DEMO_PASSWORD), engine.now()),
-        )
+    rng = random.Random(DEMO_SEED + 1)
+    ceiling = datetime.now(timezone.utc) - timedelta(minutes=10)
 
-    for code, name, address in WAREHOUSES:
-        execute(
-            "INSERT INTO warehouses (code, name, address, created_at) VALUES (?, ?, ?, ?)",
-            (code, name, address, engine.now()),
-        )
-        execute(
-            "INSERT INTO locations (warehouse_id, code, name, kind) VALUES (?, ?, ?, 'internal')",
-            (_warehouse_id(code), f"{code}/STOCK", "Stock area"),
-        )
+    # One timestamp per document, in the order they are created below.
+    total = len(RECEIPTS) + len(INTERNAL) + len(DELIVERIES) + len(ADJUSTMENTS)
+    plan = _schedule(total, end=ceiling)
+    origin = plan[0] - timedelta(days=3)  # master data predates the first movement
+    cursor = 0
 
-    for warehouse_code, code, name in EXTRA_LOCATIONS:
-        execute(
-            "INSERT INTO locations (warehouse_id, code, name, kind) VALUES (?, ?, ?, 'internal')",
-            (_warehouse_id(warehouse_code), f"{warehouse_code}/{code}", name),
-        )
+    def next_slot():
+        """The next document's (created, validated) pair."""
+        nonlocal cursor
+        created = plan[cursor]
+        cursor += 1
+        return created, _validation_time(created, rng, ceiling=ceiling)
 
-    for name in CATEGORIES:
-        execute("INSERT INTO categories (name) VALUES (?)", (name,))
+    # Master data is stamped before any document, so "created" ordering is
+    # coherent when the whole dataset is read as a story.
+    with engine.clock(lambda: origin):
+        for email, name, role in USERS:
+            execute(
+                """INSERT INTO users (email, name, role, password_hash, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (email, name, role, hash_password(DEMO_PASSWORD), engine.now()),
+            )
 
-    for sku, name, category, uom, cost, reorder_min, reorder_max in PRODUCTS:
-        category_id = engine.query(
-            "SELECT id FROM categories WHERE name = ?", (category,), one=True
-        )["id"]
-        execute(
-            """INSERT INTO products
-                   (sku, name, category_id, uom, unit_cost, reorder_min, reorder_max,
-                    is_active, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)""",
-            (sku, name, category_id, uom, cost, reorder_min, reorder_max, engine.now()),
-        )
+        for code, name, address in WAREHOUSES:
+            execute(
+                "INSERT INTO warehouses (code, name, address, created_at) VALUES (?, ?, ?, ?)",
+                (code, name, address, engine.now()),
+            )
+            execute(
+                "INSERT INTO locations (warehouse_id, code, name, kind) VALUES (?, ?, ?, 'internal')",
+                (_warehouse_id(code), f"{code}/STOCK", "Stock area"),
+            )
 
-    # Receipts first: nothing else can happen until stock exists.
+        for warehouse_code, code, name in EXTRA_LOCATIONS:
+            execute(
+                "INSERT INTO locations (warehouse_id, code, name, kind) VALUES (?, ?, ?, 'internal')",
+                (_warehouse_id(warehouse_code), f"{warehouse_code}/{code}", name),
+            )
+
+        for name in CATEGORIES:
+            execute("INSERT INTO categories (name) VALUES (?)", (name,))
+
+        for sku, name, category, uom, cost, reorder_min, reorder_max in PRODUCTS:
+            category_id = engine.query(
+                "SELECT id FROM categories WHERE name = ?", (category,), one=True
+            )["id"]
+            execute(
+                """INSERT INTO products
+                       (sku, name, category_id, uom, unit_cost, reorder_min, reorder_max,
+                        is_active, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)""",
+                (sku, name, category_id, uom, cost, reorder_min, reorder_max, engine.now()),
+            )
+
+    # Receipts first: nothing else can happen until stock exists. Then internal
+    # movements, deliveries, and finally count corrections.
     for index, (status, header, lines) in enumerate(RECEIPTS):
-        _create("receipt", status, header, lines, user_index=index)
+        created, validated = next_slot()
+        _create("receipt", status, header, lines, user_index=index,
+                created_at=created, validated_at=validated)
 
-    # Then internal movements, deliveries, and finally count corrections.
     for index, (status, header, lines) in enumerate(INTERNAL):
-        _create("internal", status, header, lines, user_index=index + 1)
+        created, validated = next_slot()
+        _create("internal", status, header, lines, user_index=index + 1,
+                created_at=created, validated_at=validated)
 
     for index, (status, header, lines) in enumerate(DELIVERIES):
-        _create("delivery", status, header, lines, user_index=index + 2)
+        created, validated = next_slot()
+        _create("delivery", status, header, lines, user_index=index + 2,
+                created_at=created, validated_at=validated)
 
     for index, (status, header, lines) in enumerate(ADJUSTMENTS):
-        _create("adjustment", status, header, lines, user_index=index)
+        created, validated = next_slot()
+        _create("adjustment", status, header, lines, user_index=index,
+                created_at=created, validated_at=validated)
 
 
 def main() -> None:

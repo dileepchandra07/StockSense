@@ -26,7 +26,7 @@
         <td class="small muted">{{ w['address'] or '—' }}</td>
         <td class="right">{{ w['location_count'] }}</td>
         <td class="right">{{ w['document_count'] }}</td>
-        <td class="small muted nowrap">{{ w['created_at'][:10] }}</td>
+        <td class="small muted nowrap">{{ w['created_at']|localtime('%d %b %Y') }}</td>
         <td class="right">
           <a class="btn btn-sm" href="{{ url_for('settings.warehouse_detail', warehouse_id=w['id']) }}">Open</a>
         </td>
