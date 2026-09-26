@@ -89,6 +89,32 @@ def default_internal_location(warehouse_id: int):
     if row is None:
         raise DomainError("That warehouse has no internal location to move stock into")
     return row
+def validate_location(
+    location_id: int,
+    *,
+    expected_kind: str,
+    expected_warehouse_id: int | None = None,
+) -> None:
+    """Validate that a location is legal for a document movement."""
+    location = query(
+        "SELECT * FROM locations WHERE id = ?",
+        (location_id,),
+        one=True,
+    )
+
+    if location is None:
+        raise DomainError("Selected location does not exist")
+
+    if location["kind"] != expected_kind:
+        raise DomainError(
+            f"Location {location['code']} is not a {expected_kind} location"
+        )
+
+    if expected_warehouse_id is not None:
+        if location["warehouse_id"] != expected_warehouse_id:
+            raise DomainError(
+                f"Location {location['code']} does not belong to the selected warehouse"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -298,27 +324,92 @@ def list_documents(
     return query(sql, args)
 
 
-def create_document(*, doc_type, user_id, supplier="", src_warehouse_id=None,
-                    dst_warehouse_id=None, notes=""):
+def set_status(document_id: int, status: str) -> None:
+    """Move a document through the allowed workflow.
+
+    draft -> waiting -> ready -> done
+       \---------------------> canceled
+
+    'done' is only reached through validate_document().
+    """
+    if status not in STATUSES:
+        raise DomainError(f"Unknown status {status!r}")
+
+    if status == "done":
+        raise DomainError("Use validate to complete a document")
+
+    document = get_document(document_id)
+
+    if document is None:
+        raise DomainError("Document not found")
+
+    current = document["status"]
+
+    if current == "done":
+        raise DomainError("A validated document cannot be changed")
+
+    if current == "canceled":
+        raise DomainError("A canceled document cannot be changed")
+
+    allowed_transitions = {
+        "draft": {"waiting", "canceled"},
+        "waiting": {"ready", "canceled"},
+        "ready": {"canceled"},
+    }
+
+    allowed = allowed_transitions.get(current, set())
+
+    if status not in allowed:
+        raise DomainError(
+            f"Invalid status transition: {current} -> {status}"
+        )
+
+    execute(
+        "UPDATE documents SET status = ? WHERE id = ?",
+        (status, document_id),
+)
+def create_document(
+    *,
+    doc_type,
+    user_id,
+    supplier="",
+    src_warehouse_id=None,
+    dst_warehouse_id=None,
+    notes="",
+):
     if doc_type not in DOC_TYPES:
         raise DomainError(f"Unknown document type {doc_type!r}")
+
     if doc_type == "receipt" and not dst_warehouse_id:
         raise DomainError("A receipt needs a destination warehouse")
+
     if doc_type == "delivery" and not src_warehouse_id:
         raise DomainError("A delivery needs a source warehouse")
-    if doc_type in ("internal", "adjustment") and not (src_warehouse_id or dst_warehouse_id):
+
+    if doc_type in ("internal", "adjustment") and not (
+        src_warehouse_id or dst_warehouse_id
+    ):
         raise DomainError("Choose a warehouse")
+
     if doc_type == "internal" and not dst_warehouse_id:
-        raise DomainError("An internal transfer needs a destination warehouse")
-    # Note: a same-warehouse transfer is legitimate -- rack A to rack B is a
-    # first-class case. The guard that matters is that the two *locations*
-    # differ, which validate_document enforces.
+        raise DomainError(
+            "An internal transfer needs a destination warehouse"
+        )
 
     return execute(
         """
         INSERT INTO documents
-            (doc_type, reference, status, supplier, src_warehouse_id, dst_warehouse_id,
-             notes, created_by, created_at)
+            (
+                doc_type,
+                reference,
+                status,
+                supplier,
+                src_warehouse_id,
+                dst_warehouse_id,
+                notes,
+                created_by,
+                created_at
+            )
         VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -333,7 +424,6 @@ def create_document(*, doc_type, user_id, supplier="", src_warehouse_id=None,
         ),
     )
 
-
 def add_line(document_id, product_id, qty=0, counted_qty=None,
              src_location_id=None, dst_location_id=None):
     return execute(
@@ -346,8 +436,20 @@ def add_line(document_id, product_id, qty=0, counted_qty=None,
     )
 
 
-def delete_line(line_id: int) -> None:
-    execute("DELETE FROM document_lines WHERE id = ?", (line_id,))
+def delete_line(document_id: int, line_id: int) -> None:
+    """Delete a line only if it belongs to the specified document."""
+    result = execute(
+        """
+        DELETE FROM document_lines
+        WHERE id = ? AND document_id = ?
+        """,
+        (line_id, document_id),
+    )
+
+    if result.rowcount == 0:
+        raise DomainError(
+            "Document line not found or does not belong to this document"
+        )
 
 
 def set_status(document_id: int, status: str) -> None:

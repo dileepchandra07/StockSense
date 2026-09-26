@@ -188,7 +188,7 @@ def delete_line(document_id, line_id):
         flash("Lines can only be changed while a document is a draft.", "error")
         return redirect(url_for("operations.detail", document_id=document_id))
 
-    engine.delete_line(line_id)
+    engine.delete_line(document_id, line_id)
     flash("Line removed.", "success")
     return redirect(url_for("operations.detail", document_id=document_id))
 
