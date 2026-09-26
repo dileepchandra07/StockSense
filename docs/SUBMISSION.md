@@ -4,7 +4,7 @@ Derived from the Odoo x LPU Jalandhar Hackathon 2026 participant email and the
 Virtual Round guide. **Read the "Blockers" section first — two items are not
 done and they are the ones that cost marks.**
 
-Last verified against the live repository: 2026-09-26 15:30 IST.
+Last verified against the live repository: 2026-09-26 17:40 IST.
 
 ---
 
@@ -27,7 +27,7 @@ Last verified against the live repository: 2026-09-26 15:30 IST.
 | 6 | Repository is **public** (private counts as not submitted) | ✅ public, verified |
 | 7 | Latest code is on `main` | ✅ `main` is the default branch and up to date |
 | 8 | **Every member commits their own code** | ❌ **see Blocker 1** |
-| 9 | Push at least once every hour | ⚠️ last push 15:01 IST — keep the cadence |
+| 9 | Push at least once every hour | ✅ five commits pushed 17:00–17:40 IST — keep the cadence |
 | 10 | Commit messages explain what was done | ✅ conventional commits in use |
 | 11 | Join the Discord server | ❓ do this if not already done |
 | 12 | Follow the timeline on the hackathon screen | ❓ check the event page |
@@ -123,8 +123,37 @@ manager actually asks for next.
 
 ### Demo video — whoever presents
 
-5–6 minutes, **functional flow only**, open-access link. The six beats are already
-written in [`roadmap.md`](roadmap.md#demo-script). Rehearse twice before recording.
+5–6 minutes, **functional flow only**, open-access link. The shot-by-shot script
+is [`DEMO-SCRIPT.md`](DEMO-SCRIPT.md) — pre-flight, a timing budget, what to
+click, word-for-word narration and a recovery table for when a take goes wrong.
+Every number in it was verified by running the beats in order against a fresh
+seed, so it cannot drift from the application.
+
+---
+
+## Application state
+
+Not a submission requirement, but worth knowing before the Q&A.
+
+The application is complete against the problem statement: authentication with
+OTP reset, product management with categories and reordering rules, receipts,
+delivery orders with the pick/pack/validate flow, internal transfers, stock
+adjustments, move history, warehouse settings, and a dashboard with all five
+required KPIs and the four dynamic filters.
+
+**191 tests pass** — 53 pinning the domain semantics with no framework involved,
+138 driving the real Flask app against a throwaway database. CI runs both on
+every push across Python 3.11, 3.12 and 3.13.
+
+Five polish commits landed 17:00–17:40 IST, fixing what a reviewer would have
+caught: timestamps were rendering in UTC rather than the display timezone, the
+seeded history was a single frozen moment, the status vocabulary did not use the
+spec's own pick/pack/validate words, adjustment rows showed a quantity of zero,
+the favicon 404'd, and a delivery had no printable pick list. See
+`git log aafeaf2..f5446f6`.
+
+**The two blockers below are still the ones that cost marks.** They are not
+things more code can fix.
 
 ---
 
