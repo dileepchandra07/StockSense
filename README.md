@@ -141,7 +141,7 @@ That is the layer to read if you want to understand the system.
 ## Tests
 
 ```bash
-python -m unittest discover -s tests     # 78 application tests
+python -m unittest discover -s tests     # 133 application tests
 cd reference && python -m unittest       # 53 domain invariant tests
 ```
 
@@ -163,6 +163,7 @@ tested without Flask, SQLite or HTTP in the way.
 | [`docs/DESIGN-RATIONALE.md`](docs/DESIGN-RATIONALE.md) | Why the design is this way, and where it is weak |
 | [`docs/roadmap.md`](docs/roadmap.md) | Phases, workstreams, demo script |
 | [`docs/SUBMISSION.md`](docs/SUBMISSION.md) | Hackathon submission checklist |
+| [`docs/DEMO-SCRIPT.md`](docs/DEMO-SCRIPT.md) | Shot-by-shot script for the 6-minute demo video |
 | [`spec/openapi.yaml`](spec/openapi.yaml) | REST contract |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branch strategy, commit conventions, PR flow |
 

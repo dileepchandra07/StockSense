@@ -139,18 +139,13 @@ A module is done when all of these are true. Not most of them.
 
 ## Demo script
 
-Write this in Phase 1, rehearse it in Phase 5. Six beats, three minutes:
+The full shot-by-shot script — pre-flight, timings, narration and recovery
+lines — is in [`DEMO-SCRIPT.md`](DEMO-SCRIPT.md). Record from that, not from
+here.
 
-1. **The problem** — hold up the paper register and the spreadsheet. Ten seconds.
-2. **Receive stock** — goods arrive at MAIN. Record it. Level updates live.
-3. **Transfer between warehouses** — 30 units MAIN → NORTH. Both levels move;  
-   total is unchanged. *This is the moment that lands.*
-4. **Ship to a customer** — deliver. Show the availability guard rejecting an  
-   over-draw, so the system visibly refuses to lie.
-5. **The alert** — open the low-stock list. BOLT-M8 is below minimum. It tells you  
-   to order 92. Nobody had to notice this manually.
-6. **The ledger** — open the movement history. Every number on screen traces back  
-   to a row with a reference, a time and a person.
+The short version, six beats: the problem; receive stock; transfer between
+warehouses so the total stays put while the location moves; ship, and watch the
+availability guard refuse an over-draw; the low-stock alert; the ledger.
 
 Close on the ledger. It is the thing that makes the rest credible.
 

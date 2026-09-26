@@ -131,7 +131,7 @@ written in [`roadmap.md`](roadmap.md#demo-script). Rehearse twice before recordi
 ## Before every push
 
 ```bash
-python -m unittest discover -s tests    # 78 application tests
+python -m unittest discover -s tests    # 133 application tests
 cd reference && python -m unittest      # 53 domain invariant tests
 ```
 
