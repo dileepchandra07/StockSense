@@ -1,0 +1,162 @@
+# ---------------------------------------------------------------------------
+# StockSense .gitignore
+# Multi-stack: covers Python, Node, Odoo, and common editors/OS noise so the
+# repository stays clean whichever stack the team settles on.
+# ---------------------------------------------------------------------------
+
+# --- Secrets and local configuration (never commit these) -------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+credentials.json
+*.sqlite3
+*.db
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+coverage.xml
+*.cover
+
+# Type checkers and linters
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pytype/
+
+# --- Odoo -------------------------------------------------------------------
+# Odoo runtime data, filestore and per-database artefacts
+odoo.conf
+*.conf.local
+filestore/
+.openerp/
+.odoorc
+*.log
+!docs/**/*.log
+
+# --- Node / JavaScript ------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.npm/
+.yarn/
+bower_components/
+
+# Build output
+.next/
+out/
+.nuxt/
+dist/
+build/
+.turbo/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+
+# Test and coverage
+.nyc_output/
+coverage/
+jest.config.local.js
+
+# --- Framework caches -------------------------------------------------------
+.cache/
+.astro/
+.svelte-kit/
+.vercel/
+.netlify/
+
+# --- Java / Spring Boot -----------------------------------------------------
+target/
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+*.class
+hs_err_pid*
+
+# --- Docker and containers --------------------------------------------------
+*.pid
+.docker/
+docker-compose.override.yml
+
+# --- Editors and IDEs -------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+nbproject/
+*.sublime-workspace
+*.sublime-project
+
+# --- Operating system -------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- Logs and temporary files -----------------------------------------------
+logs/
+*.log
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
+*.rej

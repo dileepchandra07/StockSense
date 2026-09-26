@@ -1,0 +1,604 @@
+openapi: 3.0.3
+
+info:
+  title: StockSense API
+  version: 0.1.0
+  description: |
+    Real-time inventory tracking across warehouses.
+
+    This contract is the integration point between the dashboard and the domain
+    modules. The frontend can be built against it before the backend exists; the
+    backend implements it whatever stack it is written in.
+
+    ## The one thing to understand
+
+    **Stock levels are derived from the movement ledger.** There is no endpoint
+    that sets an on-hand quantity. Every change to inventory is recorded as a
+    move via `POST /moves`, and levels are computed from the resulting ledger.
+
+    See `docs/domain-model.md` for the invariants this contract assumes.
+
+    ## Conventions
+
+    - All quantities are strictly positive. Direction is encoded in the move kind.
+    - Quantities are decimal, not integer — some units of measure are fractional.
+    - Timestamps are ISO 8601 in UTC.
+    - Errors use a single shape: `Error`.
+  contact:
+    name: StockSense Team
+    url: https://github.com/dileepchandra07/StockSense
+  license:
+    name: MIT
+    url: https://github.com/dileepchandra07/StockSense/blob/main/LICENSE
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development
+  - url: https://stocksense.example.com/api/v1
+    description: Demo deployment
+
+tags:
+  - name: catalog
+    description: Products, categories and units of measure
+  - name: network
+    description: Warehouses and bin locations
+  - name: ledger
+    description: The movement ledger — the source of truth
+  - name: levels
+    description: Stock levels derived from the ledger
+  - name: reorder
+    description: Reorder rules and low-stock alerts
+  - name: valuation
+    description: Inventory value at cost
+
+paths:
+  /products:
+    get:
+      tags: [catalog]
+      summary: List products
+      operationId: listProducts
+      parameters:
+        - name: category
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          description: Case-insensitive match on SKU or name
+          schema: { type: string }
+        - name: is_active
+          in: query
+          schema: { type: boolean, default: true }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Paginated products
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Product' }
+                  total: { type: integer }
+    post:
+      tags: [catalog]
+      summary: Create a product
+      operationId: createProduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /products/{sku}:
+    parameters:
+      - $ref: '#/components/parameters/Sku'
+    get:
+      tags: [catalog]
+      summary: Get a product
+      operationId: getProduct
+      responses:
+        '200':
+          description: The product
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /warehouses:
+    get:
+      tags: [network]
+      summary: List warehouses
+      operationId: listWarehouses
+      responses:
+        '200':
+          description: All warehouses
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Warehouse' }
+    post:
+      tags: [network]
+      summary: Create a warehouse
+      description: |
+        Also creates a default `internal` location with code `<warehouse>/STOCK`,
+        so a new warehouse can receive stock immediately.
+      operationId: createWarehouse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WarehouseCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Warehouse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /locations:
+    get:
+      tags: [network]
+      summary: List locations
+      operationId: listLocations
+      parameters:
+        - name: warehouse
+          in: query
+          schema: { type: string }
+        - name: kind
+          in: query
+          schema: { $ref: '#/components/schemas/LocationKind' }
+      responses:
+        '200':
+          description: Matching locations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Location' }
+
+  /moves:
+    get:
+      tags: [ledger]
+      summary: Query the movement ledger
+      description: |
+        The audit trail. Filterable by product, warehouse and time window, newest
+        first by default.
+      operationId: listMoves
+      parameters:
+        - name: sku
+          in: query
+          schema: { type: string }
+        - name: warehouse
+          in: query
+          description: Matches moves where either endpoint is in this warehouse
+          schema: { type: string }
+        - name: kind
+          in: query
+          schema: { $ref: '#/components/schemas/MoveKind' }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Paginated moves
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/StockMove' }
+                  total: { type: integer }
+    post:
+      tags: [ledger]
+      summary: Record a movement
+      description: |
+        The only way to change inventory. One endpoint, four kinds:
+
+        | kind | Required fields | Effect |
+        | --- | --- | --- |
+        | `receipt` | `sku`, `qty`, `warehouse` | Supplier → internal. Increases on-hand. |
+        | `delivery` | `sku`, `qty`, `warehouse` | Internal → customer. Decreases on-hand. |
+        | `transfer` | `sku`, `qty`, `from_warehouse`, `to_warehouse` | Internal → internal. Total unchanged. |
+        | `adjustment` | `sku`, `qty`, `warehouse` | Records a count correction. `qty` is the delta. |
+
+        **Invariant:** a `delivery` or `transfer` that would drive internal stock
+        below zero is rejected with `409 insufficient_stock`. This is deliberate —
+        the system refuses to record an impossible state.
+      operationId: createMove
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MoveCreate' }
+      responses:
+        '201':
+          description: Move recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockMove' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/InsufficientStock' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /stock:
+    get:
+      tags: [levels]
+      summary: On-hand stock levels
+      description: |
+        Derived from the ledger. Restricted to `internal` locations — virtual
+        supplier, customer and adjustment locations are bookkeeping, not stock.
+      operationId: getStockLevels
+      parameters:
+        - name: sku
+          in: query
+          schema: { type: string }
+        - name: warehouse
+          in: query
+          schema: { type: string }
+        - name: group_by
+          in: query
+          description: Aggregate to this granularity
+          schema:
+            type: string
+            enum: [location, warehouse, product]
+            default: location
+      responses:
+        '200':
+          description: Stock levels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/StockLevel' }
+                  total_on_hand: { type: number }
+
+  /stock/low:
+    get:
+      tags: [reorder]
+      summary: Products below their reorder point
+      description: |
+        Every `(sku, warehouse)` pair with a reorder rule where on-hand is below
+        the minimum, together with a suggested order quantity.
+      operationId: getLowStock
+      parameters:
+        - name: warehouse
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Low-stock items, most urgent first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LowStockItem' }
+
+  /reorder-rules:
+    get:
+      tags: [reorder]
+      summary: List reorder rules
+      operationId: listReorderRules
+      parameters:
+        - name: warehouse
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Reorder rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ReorderRule' }
+
+  /reorder-rules/{sku}:
+    parameters:
+      - $ref: '#/components/parameters/Sku'
+    put:
+      tags: [reorder]
+      summary: Set a product's reorder rule
+      operationId: setReorderRule
+      parameters:
+        - name: warehouse
+          in: query
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [min_qty, max_qty]
+              properties:
+                min_qty: { type: number, minimum: 0 }
+                max_qty: { type: number, minimum: 0 }
+      responses:
+        '200':
+          description: Rule set
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReorderRule' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /valuation:
+    get:
+      tags: [valuation]
+      summary: Inventory value at cost
+      operationId: getValuation
+      parameters:
+        - name: warehouse
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Valuation, optionally broken down by warehouse
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Valuation' }
+
+components:
+  parameters:
+    Sku:
+      name: sku
+      in: path
+      required: true
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+
+  responses:
+    NotFound:
+      description: The referenced entity does not exist
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: not_found
+            message: No product with sku 'WIDGET-Z'
+    Conflict:
+      description: The entity already exists
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: conflict
+            message: A product with sku 'WIDGET-A' already exists
+    InsufficientStock:
+      description: |
+        The move would drive internal stock negative. The system refuses to
+        record an impossible state.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: insufficient_stock
+            message: Cannot deliver 500 of WIDGET-A from MAIN; only 65 on hand
+            details:
+              sku: WIDGET-A
+              warehouse: MAIN
+              requested: 500
+              available: 65
+    ValidationError:
+      description: The request body or parameters are invalid
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: validation_error
+            message: qty must be greater than zero
+
+  schemas:
+    LocationKind:
+      type: string
+      enum: [internal, supplier, customer, adjustment]
+      description: |
+        `internal` locations hold real countable stock. The other three are
+        virtual bookkeeping locations representing the outside world.
+
+    MoveKind:
+      type: string
+      enum: [receipt, delivery, transfer, adjustment]
+
+    Product:
+      type: object
+      required: [sku, name, uom, unit_cost, is_active]
+      properties:
+        sku: { type: string, example: WIDGET-A }
+        name: { type: string, example: 'Steel widget, 12mm' }
+        category: { type: string, example: fasteners }
+        uom: { type: string, example: unit }
+        unit_cost: { type: number, format: double, example: 24.5 }
+        is_active: { type: boolean, default: true }
+
+    ProductCreate:
+      type: object
+      required: [sku, name]
+      properties:
+        sku:
+          type: string
+          pattern: '^[A-Z0-9][A-Z0-9-]{1,31}$'
+          example: WIDGET-A
+        name: { type: string, example: 'Steel widget, 12mm' }
+        category: { type: string, example: fasteners }
+        uom: { type: string, default: unit, example: unit }
+        unit_cost: { type: number, format: double, default: 0, example: 24.5 }
+
+    Warehouse:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, example: MAIN }
+        name: { type: string, example: 'Main Distribution Centre' }
+        address: { type: string, example: 'Plot 14, Industrial Estate' }
+
+    WarehouseCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z0-9][A-Z0-9-]{1,15}$'
+          example: NORTH
+        name: { type: string, example: 'North Regional Depot' }
+        address: { type: string }
+
+    Location:
+      type: object
+      required: [code, kind]
+      properties:
+        code: { type: string, example: 'MAIN/STOCK' }
+        warehouse_code:
+          type: string
+          nullable: true
+          example: MAIN
+          description: Null for virtual locations
+        kind: { $ref: '#/components/schemas/LocationKind' }
+        name: { type: string, example: 'Main stock area' }
+
+    StockMove:
+      type: object
+      description: An immutable ledger entry. Never updated, never deleted.
+      required: [id, sku, src, dst, qty, kind, reference, created_at]
+      properties:
+        id: { type: integer, example: 1042 }
+        sku: { type: string, example: WIDGET-A }
+        src: { type: string, example: 'MAIN/STOCK' }
+        dst: { type: string, example: 'NORTH/STOCK' }
+        qty:
+          type: number
+          format: double
+          example: 30
+          description: Always strictly positive
+        kind: { $ref: '#/components/schemas/MoveKind' }
+        reference:
+          type: string
+          example: TRF-2026-0031
+          description: Mandatory. PO number, order id, incident ticket.
+        created_at: { type: string, format: date-time, example: '2026-09-26T09:14:22Z' }
+        created_by: { type: string, example: harsha }
+
+    MoveCreate:
+      type: object
+      required: [kind, sku, qty, reference]
+      properties:
+        kind: { $ref: '#/components/schemas/MoveKind' }
+        sku: { type: string, example: WIDGET-A }
+        qty:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          example: 30
+        reference:
+          type: string
+          minLength: 1
+          example: TRF-2026-0031
+        warehouse:
+          type: string
+          description: Required for receipt, delivery and adjustment
+          example: MAIN
+        from_warehouse:
+          type: string
+          description: Required for transfer
+          example: MAIN
+        to_warehouse:
+          type: string
+          description: Required for transfer
+          example: NORTH
+        location:
+          type: string
+          description: |
+            Optional. Overrides the warehouse's default location, for operating
+            against a specific bin.
+          example: 'MAIN/A1'
+        created_by: { type: string, example: harsha }
+
+    StockLevel:
+      type: object
+      required: [sku, location, warehouse, qty]
+      properties:
+        sku: { type: string, example: WIDGET-A }
+        location: { type: string, example: 'MAIN/STOCK' }
+        warehouse: { type: string, example: MAIN }
+        qty: { type: number, format: double, example: 65 }
+
+    ReorderRule:
+      type: object
+      required: [sku, warehouse_code, min_qty, max_qty]
+      properties:
+        sku: { type: string, example: BOLT-M8 }
+        warehouse_code: { type: string, example: MAIN }
+        min_qty: { type: number, example: 50 }
+        max_qty: { type: number, example: 150 }
+
+    LowStockItem:
+      type: object
+      required: [sku, warehouse, on_hand, min_qty, suggested_order_qty]
+      properties:
+        sku: { type: string, example: BOLT-M8 }
+        name: { type: string, example: 'Hex bolt M8' }
+        warehouse: { type: string, example: MAIN }
+        on_hand: { type: number, example: 8 }
+        min_qty: { type: number, example: 50 }
+        max_qty: { type: number, example: 100 }
+        suggested_order_qty: { type: number, example: 92 }
+
+    Valuation:
+      type: object
+      required: [total]
+      properties:
+        total: { type: number, format: double, example: 4215.0 }
+        currency: { type: string, default: INR, example: INR }
+        by_warehouse:
+          type: array
+          items:
+            type: object
+            properties:
+              warehouse: { type: string, example: MAIN }
+              value: { type: number, format: double, example: 2810.0 }
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          example: insufficient_stock
+        message:
+          type: string
+          example: Cannot deliver 500 of WIDGET-A from MAIN; only 65 on hand
+        details:
+          type: object
+          additionalProperties: true
