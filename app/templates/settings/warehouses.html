@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Warehouses · StockSense{% endblock %}
+{% block heading %}Warehouses{% endblock %}
+{% block subheading %}{{ warehouses|length }} location{{ '' if warehouses|length == 1 else 's' }} in the network{% endblock %}
+
+{% block actions %}
+  <a class="btn btn-primary" href="{{ url_for('settings.create_warehouse') }}">New warehouse</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+  {% if warehouses %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Code</th><th>Name</th><th>Address</th>
+        <th class="right">Locations</th><th class="right">Documents</th><th>Created</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for w in warehouses %}
+      <tr>
+        <td><a class="mono" href="{{ url_for('settings.warehouse_detail', warehouse_id=w['id']) }}">{{ w['code'] }}</a></td>
+        <td>{{ w['name'] }}</td>
+        <td class="small muted">{{ w['address'] or '—' }}</td>
+        <td class="right">{{ w['location_count'] }}</td>
+        <td class="right">{{ w['document_count'] }}</td>
+        <td class="small muted nowrap">{{ w['created_at'][:10] }}</td>
+        <td class="right">
+          <a class="btn btn-sm" href="{{ url_for('settings.warehouse_detail', warehouse_id=w['id']) }}">Open</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <h3>No warehouses yet</h3>
+    <p>A warehouse is where stock lives. Create one before recording a receipt.</p>
+    <a class="btn btn-primary" href="{{ url_for('settings.create_warehouse') }}">Create the first warehouse</a>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <strong>Multi-warehouse by design</strong>
+    <p class="muted small" style="margin:6px 0 0">
+      Every warehouse gets a default stock location when it is created, so it can
+      receive goods immediately. Add extra locations for racks, aisles or a
+      production floor, and transfers between them are recorded in the same ledger
+      as everything else.
+    </p>
+  </div>
+</div>
+
+{% endblock %}

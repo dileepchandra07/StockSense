@@ -1,0 +1,24 @@
+{% extends "auth_base.html" %}
+{% block title %}Your reset code · StockSense{% endblock %}
+
+{% block content %}
+  <h1>Your reset code</h1>
+  <p class="lead">Enter this code on the next screen to choose a new password.</p>
+
+  <div class="otp-display">{{ otp }}</div>
+  <p class="muted small" style="text-align:center;margin:8px 0 0">
+    Valid for {{ ttl }} minutes &middot; sent to {{ email }}
+  </p>
+
+  <div class="alert alert-warn" style="margin-top:18px">
+    <strong>Demo mode.</strong> StockSense has no mail service wired up, so the
+    code is shown here instead of being emailed. Replacing the delivery step with
+    a real mail send changes nothing else in the flow.
+  </div>
+
+  <form method="post" action="{{ url_for('auth.reset_password') }}">
+    <input type="hidden" name="email" value="{{ email }}">
+    <input type="hidden" name="otp" value="{{ otp }}">
+    <button class="btn btn-primary" type="submit">Continue to set a new password</button>
+  </form>
+{% endblock %}

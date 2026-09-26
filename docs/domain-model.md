@@ -99,6 +99,34 @@ The ledger entry. **Append-only — never updated, never deleted.**
 A `StockLevel` is the pair `(sku, location_code) -> qty`. It is computed, never
 written. See [Derived quantities](#derived-quantities).
 
+### Document
+
+A document is an *intent to move stock*, not a movement. It is the unit of work
+an operator actually creates, reviews and signs off.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `doc_type` | enum | `receipt`, `delivery`, `internal`, `adjustment` |
+| `reference` | string | Human-readable number — `WH/IN/00007`. Unique. |
+| `status` | enum | See [the status workflow](#documents-and-the-status-workflow) |
+| `supplier` | string | Receipts only |
+| `src_warehouse_id` | int \| null | Where stock comes from |
+| `dst_warehouse_id` | int \| null | Where stock goes |
+| `notes` | string | Free text |
+| `created_by`, `created_at` | | |
+| `validated_by`, `validated_at` | | Set once, when the document reaches `done` |
+
+### DocumentLine
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `document_id` | int | |
+| `product_id` | int | |
+| `qty` | decimal | For receipts, deliveries and transfers |
+| `counted_qty` | decimal \| null | Adjustments only — the physical count |
+| `src_location_id` | int \| null | Null means the warehouse's default stock area |
+| `dst_location_id` | int \| null | Null means the warehouse's default stock area |
+
 ### ReorderRule
 
 | Field | Type | Notes |
@@ -140,6 +168,46 @@ Adjustments are the interesting one. To set a shelf to a counted value, you
 compute the delta between the ledger and the count and record *that delta* as an
 adjustment move. The count itself is not stored — the correction is. This is why
 a wrong number can always be traced back to the moment someone fixed it and why.
+
+## Documents and the status workflow
+
+A document and a movement are different things, and keeping them separate is
+what makes the system usable by people rather than only by machines.
+
+**A document is a plan. A movement is a fact.** Creating a receipt does not
+change stock. It records that someone *intends* goods to arrive. Stock changes
+at exactly one moment: when the document is validated and its status becomes
+`done`.
+
+```
+draft ──→ waiting ──→ ready ──→ done          stock has moved, permanently
+  │          │          │
+  └──────────┴──────────┴──→ canceled          stock never will
+```
+
+| Status | Meaning | Stock effect |
+| --- | --- | --- |
+| `draft` | Being prepared. Lines can still be added and removed. | none |
+| `waiting` | Submitted, awaiting the goods or a colleague | none |
+| `ready` | Goods are staged, ready to be applied | none |
+| `done` | Validated. The ledger has been written. | **applied** |
+| `canceled` | Abandoned | none |
+
+Rules that follow from this:
+
+- **Only `draft` documents can have their lines edited.** Once a document is
+  submitted for processing, changing it would invalidate someone's work.
+- **Only one transition writes to the ledger**, and it is atomic: the moves and
+  the status change commit together, or neither does. There is no window in
+  which a document is `done` but its moves are missing.
+- **`done` is terminal.** A validated document cannot be edited, deleted or
+  re-validated. To undo it, record the reverse — which leaves both the mistake
+  and the correction visible.
+- **`canceled` cannot be validated.** Cancelling is a decision, not a pause.
+
+This is why the dashboard can show "pending receipts" as a meaningful number:
+it counts documents in `draft`, `waiting` or `ready` — work that is planned but
+not yet real.
 
 ## Invariants
 

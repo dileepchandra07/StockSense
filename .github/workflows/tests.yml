@@ -1,0 +1,85 @@
+name: tests
+
+# Two suites, deliberately separate.
+#
+# The reference suite encodes the domain invariants with no framework involved.
+# If it breaks, the *semantics* are broken. The application suite drives the
+# real Flask app end to end against a throwaway database. If it breaks, the
+# wiring is broken. Knowing which of the two failed tells you where to look.
+#
+# See docs/domain-model.md for the invariants themselves.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  reference:
+    name: domain invariants (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    defaults:
+      run:
+        working-directory: reference
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # No install step: the reference implementation is standard library only.
+      - name: Run the invariant suite
+        run: python -m unittest -v
+
+      - name: Run the demo walkthrough
+        run: python demo.py
+
+  application:
+    name: application (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the application suite
+        run: python -m unittest discover -s tests -v
+
+      - name: Verify the seeder runs from a clean database
+        run: python -m app.seed
+
+      - name: Verify the server boots and serves the sign-in page
+        run: |
+          python run.py &
+          SERVER=$!
+          for _ in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:5000/login > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:5000/login > /dev/null && echo "server responded"
+          kill $SERVER
+        env:
+          FLASK_DEBUG: "0"

@@ -1,9 +1,9 @@
 # Architecture
 
-**Stack decision: open.** This document lays out the options and the reasoning,
-so the team can ratify a choice rather than re-litigate it. Everything else in
-the repository — the domain model, the API contract, the reference
-implementation — is deliberately independent of the answer.
+**Stack decision: made — Flask + SQLite + server-rendered Jinja2.**
+See [the decision](#decision) below for why, and what was rejected. The rest of
+this document records the reasoning and the options that were considered, so the
+choice does not get re-litigated in the final hour.
 
 ---
 
@@ -131,7 +131,47 @@ Python-strong.
 | Learning risk | High | Low | Low | Low |
 | Aligns with hackathon framing | Best | Neutral | Neutral | Neutral |
 
-## Recommendation
+## Decision
+
+**Flask + SQLite + Jinja2, server-rendered, one hand-written stylesheet.**
+
+The deciding factor was time-to-complete under a hard deadline, and it was not a
+close call once framed that way:
+
+- **No build step.** No bundler, no `node_modules`, no transpile. `pip install -r
+  requirements.txt` and `python run.py` is the entire setup. A stack that fails
+  to install on the demo machine is a stack that fails.
+- **The domain layer ports cleanly.** `app/engine.py` is close to a direct
+  translation of `reference/stock_engine.py`, which already had passing tests.
+  Choosing a stack that made that translation hard would have thrown away the
+  most valuable work in the repository.
+- **One language.** Templates, views and domain logic are all Python. On a short
+  deadline, context-switching between two languages costs more than it buys.
+- **Server-rendered HTML is enough.** This is a forms-and-tables application.
+  A client-side framework would add a build step and a state-sync problem in
+  exchange for interactivity the spec does not ask for.
+
+**Rejected, and why:**
+
+| Option | Why not |
+| --- | --- |
+| Odoo 17/18 module | Highest ceiling, but the learning risk on the clock was unacceptable. We would have spent the budget learning Odoo's ORM and view system instead of building the product. |
+| React + FastAPI | Would have meant two runtimes, a build step, and a UI built from nothing. More moving parts to break at demo time for no gain in what is being judged. |
+| Next.js + Prisma | Fastest route to a polished UI, but it interleaves the domain with route handlers unless we were disciplined, which weakens the invariant tests that are the repository's main asset. |
+
+**Consequences accepted:**
+
+- The UI is less interactive than a React build could be. Pagination and filtering
+  are full page loads.
+- SQLite will not survive concurrent writers at production scale. Postgres is a
+  `DATABASE` environment variable and a driver swap away, because all SQL lives
+  behind `app/db.py`.
+- The REST contract in `spec/openapi.yaml` is not currently served. It remains
+  the documented interface and the target if the frontend is ever split out.
+
+## Recommendation (superseded)
+
+Kept for the record. This was the pre-decision analysis.
 
 **Option B or C**, decided by one question: *is the team stronger in Python or
 TypeScript?* Both give a clean domain layer and a real database. Pick the language

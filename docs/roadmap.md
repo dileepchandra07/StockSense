@@ -5,6 +5,23 @@ everybody knows what they are building and on day three nobody is surprised.
 
 ---
 
+## Status
+
+| Phase | State |
+| --- | --- |
+| 0 — Foundation | ✅ done |
+| 1 — Stack ratified, walking skeleton | ✅ done — Flask + SQLite, seeded, CI green |
+| 2 — Ledger and levels | ✅ done — all six invariants tested against real SQL |
+| 3 — Reorder and valuation | ✅ done |
+| 4 — Dashboard | ✅ done |
+| 5 — Polish and rehearse | ⏳ in progress |
+
+**The remaining work is rehearsal, not construction.** Every feature in the
+problem statement is built and tested. What is left is running the demo script
+below twice, on the actual demo machine, and fixing whatever breaks.
+
+---
+
 ## Phases
 
 ### Phase 0 — Foundation ✅

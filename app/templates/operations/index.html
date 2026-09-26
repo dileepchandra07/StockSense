@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui with context %}
+{% block title %}Operations · StockSense{% endblock %}
+{% block heading %}Operations{% endblock %}
+{% block subheading %}Every movement of stock, in one place{% endblock %}
+
+{% block actions %}
+  {% for key, meta in DOC_TYPES.items() %}
+    <a class="btn {{ 'btn-primary' if loop.first }}" href="{{ url_for('operations.create', doc_type=key) }}">New {{ meta.label|lower }}</a>
+  {% endfor %}
+{% endblock %}
+
+{% block content %}
+
+<div class="kpi-grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+  {% for key, meta in DOC_TYPES.items() %}
+  <div class="kpi">
+    <span class="kpi-label">{{ meta.plural }}</span>
+    <span class="kpi-value">{{ type_counts.get(key, 0) }}</span>
+    <span class="kpi-hint"><a href="{{ url_for('operations.listing', doc_type=key) }}">Open list</a></span>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>By status</h2>
+    <span class="hint">Draft, waiting and ready are still in flight</span>
+  </div>
+  <div class="card-body">
+    <div class="row">
+      {% for status in STATUSES %}
+        <a class="btn btn-sm" href="{{ url_for('dashboard.index', status=status) }}">
+          {{ ui.status_badge(status) }}
+          <strong>{{ status_counts.get(status, 0) }}</strong>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Recent documents</h2>
+    <a class="hint" href="{{ url_for('operations.moves') }}">Move history</a>
+  </div>
+  {% if documents %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Reference</th><th>Type</th><th>Status</th><th>Route</th>
+        <th class="right">Lines</th><th class="right">Qty</th><th>Created by</th><th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in documents %}
+      <tr>
+        <td><a class="mono" href="{{ url_for('operations.detail', document_id=d['id']) }}">{{ d['reference'] }}</a></td>
+        <td>{{ ui.doc_tag(d['doc_type']) }}</td>
+        <td>{{ ui.status_badge(d['status']) }}</td>
+        <td class="small">{{ ui.doc_route(d) }}</td>
+        <td class="right">{{ d['line_count'] }}</td>
+        <td class="right strong">{{ d['total_qty']|qty }}</td>
+        <td class="small muted">{{ d['created_by_name'] or 'system' }}</td>
+        <td class="small muted nowrap">{{ d['created_at'][:16] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="table-empty">
+    No documents yet. Start with a
+    <a href="{{ url_for('operations.create', doc_type='receipt') }}">receipt</a>.
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

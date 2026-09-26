@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui with context %}
+{% block title %}{{ document['reference'] }} · StockSense{% endblock %}
+{% block heading %}{{ document['reference'] }}{% endblock %}
+{% block subheading %}
+  {{ meta.label }}
+  {% if document['supplier'] %} &middot; {{ document['supplier'] }}{% endif %}
+{% endblock %}
+
+{% block actions %}
+  <a class="btn" href="{{ url_for('operations.listing', doc_type=doc_type) }}">Back to list</a>
+  {% if document['status'] not in ('done', 'canceled') %}
+    <form method="post" action="{{ url_for('operations.validate', document_id=document['id']) }}">
+      <button class="btn btn-success" type="submit">Validate &amp; apply to stock</button>
+    </form>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+
+{% set order = ['draft', 'waiting', 'ready', 'done'] %}
+{% set current_index = order.index(document['status']) if document['status'] in order else -1 %}
+
+<div class="card">
+  <div class="card-body">
+    <div class="between">
+      <div class="workflow">
+        {% for s in order %}
+          <span class="workflow-step
+            {{- ' current' if document['status'] == s }}
+            {{- ' reached' if current_index > loop.index0 and document['status'] != s }}">
+            {{ STATUS_LABELS[s] }}
+          </span>
+          {% if not loop.last %}<span class="muted">→</span>{% endif %}
+        {% endfor %}
+        {% if document['status'] == 'canceled' %}
+          <span class="muted">→</span>
+          <span class="workflow-step" style="background:var(--danger-bg);color:var(--danger);border-color:#fecdca">Canceled</span>
+        {% endif %}
+      </div>
+      <div>{{ ui.status_badge(document['status']) }}</div>
+    </div>
+
+    {% if document['status'] == 'draft' %}
+      <div class="alert alert-info" style="margin-top:14px">
+        This is a <strong>draft</strong>. Nothing has touched stock yet. Add the
+        product lines below, then <strong>Validate</strong> when the goods move.
+      </div>
+    {% elif document['status'] == 'done' %}
+      <div class="alert" style="margin-top:14px;border-color:#abefc6;background:var(--ok-bg);color:#054f31">
+        Validated {{ document['validated_at'] }}
+        {% if document['validated_by_name'] %}by {{ document['validated_by_name'] }}{% endif %}.
+        The ledger entries below are permanent — to undo them, record the reverse.
+      </div>
+    {% endif %}
+  </div>
+
+  {% if document['status'] not in ('done', 'canceled') %}
+  <div class="card-foot">
+    <div class="btn-row">
+      <span class="muted small" style="margin-right:4px">Move to:</span>
+      {% for s in ['draft', 'waiting', 'ready'] %}
+        {% if document['status'] != s %}
+        <form method="post" action="{{ url_for('operations.set_status', document_id=document['id']) }}">
+          <input type="hidden" name="status" value="{{ s }}">
+          <button class="btn btn-sm" type="submit">{{ STATUS_LABELS[s] }}</button>
+        </form>
+        {% endif %}
+      {% endfor %}
+      <form method="post" action="{{ url_for('operations.set_status', document_id=document['id']) }}">
+        <input type="hidden" name="status" value="canceled">
+        <button class="btn btn-sm btn-danger" type="submit">Cancel document</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Details</h2></div>
+  <div class="card-body">
+    <dl class="defs">
+      <div class="def"><dt>Document type</dt><dd>{{ ui.doc_tag(doc_type) }}</dd></div>
+      <div class="def"><dt>Reference</dt><dd class="mono">{{ document['reference'] }}</dd></div>
+      <div class="def"><dt>Status</dt><dd>{{ ui.status_badge(document['status']) }}</dd></div>
+      {% if doc_type == 'receipt' %}
+        <div class="def"><dt>Supplier</dt><dd>{{ document['supplier'] or '—' }}</dd></div>
+        <div class="def"><dt>Receiving warehouse</dt><dd class="mono">{{ document['dst_warehouse_code'] }}</dd></div>
+      {% elif doc_type == 'delivery' %}
+        <div class="def"><dt>Shipping warehouse</dt><dd class="mono">{{ document['src_warehouse_code'] }}</dd></div>
+        <div class="def"><dt>Customer</dt><dd class="muted">External</dd></div>
+      {% elif doc_type == 'internal' %}
+        <div class="def"><dt>From</dt><dd class="mono">{{ document['src_warehouse_code'] }}</dd></div>
+        <div class="def"><dt>To</dt><dd class="mono">{{ document['dst_warehouse_code'] }}</dd></div>
+      {% else %}
+        <div class="def"><dt>Warehouse</dt><dd class="mono">{{ document['src_warehouse_code'] or document['dst_warehouse_code'] }}</dd></div>
+        <div class="def"><dt>Reason</dt><dd>Physical count reconciliation</dd></div>
+      {% endif %}
+      <div class="def"><dt>Created</dt><dd>{{ document['created_at'] }} <span class="muted">by {{ document['created_by_name'] or 'system' }}</span></dd></div>
+      <div class="def"><dt>Validated</dt><dd>{{ document['validated_at'] or '—' }}</dd></div>
+      {% if document['notes'] %}
+        <div class="def" style="grid-column:1/-1"><dt>Notes</dt><dd>{{ document['notes'] }}</dd></div>
+      {% endif %}
+    </dl>
+  </div>
+</div>
+
+<!-- Lines -->
+<div class="card">
+  <div class="card-head">
+    <h2>Product lines</h2>
+    <span class="hint">{{ lines|length }} line{{ '' if lines|length == 1 else 's' }}</span>
+  </div>
+
+  {% if document['status'] == 'draft' %}
+  <form class="inline-form {{ 'adjust' if doc_type == 'adjustment' }}" method="post"
+        action="{{ url_for('operations.add_line', document_id=document['id']) }}">
+
+    <div class="field">
+      <label>Product</label>
+      <select name="product_id" required>
+        <option value="">Choose a product</option>
+        {% for p in products %}
+          <option value="{{ p['id'] }}">{{ p['sku'] }} — {{ p['name'] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {% if doc_type == 'adjustment' %}
+      <div class="field">
+        <label>Counted quantity</label>
+        <input name="counted_qty" type="number" step="0.01" min="0" required placeholder="0">
+      </div>
+      <div class="field">
+        <label>Location</label>
+        <select name="location_id">
+          <option value="">Default stock area</option>
+          {% for l in locations %}<option value="{{ l['id'] }}">{{ l['code'] }}</option>{% endfor %}
+        </select>
+      </div>
+    {% else %}
+      <div class="field">
+        <label>Quantity</label>
+        <input name="qty" type="number" step="0.01" min="0.01" required placeholder="0">
+      </div>
+      {% if doc_type in ('delivery', 'internal') %}
+        <div class="field">
+          <label>From location</label>
+          <select name="src_location_id">
+            <option value="">Default stock area</option>
+            {% for l in locations %}<option value="{{ l['id'] }}">{{ l['code'] }}</option>{% endfor %}
+          </select>
+        </div>
+      {% endif %}
+      {% if doc_type in ('receipt', 'internal') %}
+        <div class="field">
+          <label>To location</label>
+          <select name="dst_location_id">
+            <option value="">Default stock area</option>
+            {% for l in locations %}<option value="{{ l['id'] }}">{{ l['code'] }}</option>{% endfor %}
+          </select>
+        </div>
+      {% endif %}
+    {% endif %}
+
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="btn btn-primary" type="submit">Add line</button>
+    </div>
+  </form>
+  {% endif %}
+
+  {% if lines %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Product</th>
+        {% if doc_type == 'adjustment' %}<th>Location</th><th class="right">Counted</th>{% endif %}
+        {% if doc_type != 'adjustment' %}<th class="right">Quantity</th>{% endif %}
+        {% if doc_type in ('delivery', 'internal') %}<th>From</th>{% endif %}
+        {% if doc_type in ('receipt', 'internal') %}<th>To</th>{% endif %}
+        {% if document['status'] == 'draft' %}<th></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+      <tr>
+        <td>
+          <a class="sku" href="{{ url_for('products.detail', product_id=line['product_id']) }}">{{ line['sku'] }}</a>
+          <div class="muted small">{{ line['product_name'] }}</div>
+        </td>
+        {% if doc_type == 'adjustment' %}
+          <td class="mono small">{{ line['dst_code'] or 'default' }}</td>
+          <td class="right strong">{{ line['counted_qty']|qty }} <span class="muted small">{{ line['uom'] }}</span></td>
+        {% else %}
+          <td class="right strong">{{ line['qty']|qty }} <span class="muted small">{{ line['uom'] }}</span></td>
+        {% endif %}
+        {% if doc_type in ('delivery', 'internal') %}
+          <td class="mono small">{{ line['src_code'] or 'default' }}</td>
+        {% endif %}
+        {% if doc_type in ('receipt', 'internal') %}
+          <td class="mono small">{{ line['dst_code'] or 'default' }}</td>
+        {% endif %}
+        {% if document['status'] == 'draft' %}
+        <td class="right">
+          <form method="post"
+                action="{{ url_for('operations.delete_line', document_id=document['id'], line_id=line['id']) }}">
+            <button class="btn btn-sm btn-danger" type="submit">Remove</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="table-empty">
+    No product lines yet.
+    {% if document['status'] != 'draft' %}
+      A document cannot be validated without lines.
+    {% else %}
+      Add one above.
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- Ledger entries this document wrote -->
+{% if moves %}
+<div class="card">
+  <div class="card-head">
+    <h2>Ledger entries written by this document</h2>
+    <span class="hint">{{ moves|length }} entr{{ 'y' if moves|length == 1 else 'ies' }} &middot; permanent</span>
+  </div>
+  <table class="table">
+    <thead>
+      <tr><th>#</th><th>When</th><th>Product</th><th class="right">Qty</th><th>From</th><th>To</th><th>By</th></tr>
+    </thead>
+    <tbody>
+      {% for m in moves %}
+      <tr>
+        <td class="muted mono">{{ m['id'] }}</td>
+        <td class="small muted nowrap">{{ m['created_at'][:16] }}</td>
+        <td><span class="sku">{{ m['sku'] }}</span> <span class="muted small">{{ m['product_name'] }}</span></td>
+        <td class="right strong">{{ m['qty']|qty }} <span class="muted small">{{ m['uom'] }}</span></td>
+        <td class="small">{{ ui.location(m['src_code'], m['src_kind']) }}</td>
+        <td class="small">{{ ui.location(m['dst_code'], m['dst_kind']) }}</td>
+        <td class="small muted">{{ m['created_by_name'] or 'system' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if document['status'] != 'done' %}
+<div class="card">
+  <div class="card-body between">
+    <div>
+      <strong>Delete this document</strong>
+      <p class="muted small" style="margin:2px 0 0">
+        Removes the draft and its lines. Nothing has reached the ledger, so nothing is lost.
+      </p>
+    </div>
+    <form method="post" action="{{ url_for('operations.delete', document_id=document['id']) }}">
+      <button class="btn btn-danger" type="submit">Delete</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}My Profile · StockSense{% endblock %}
+{% block heading %}My Profile{% endblock %}
+{% block subheading %}Your account and activity in StockSense{% endblock %}
+
+{% block content %}
+<div class="grid grid-2-1">
+
+  <div class="card">
+    <div class="card-head"><h2>Account details</h2></div>
+    <div class="card-body">
+      <form method="post">
+        <div class="form-grid">
+          <div class="field">
+            <label for="name">Full name</label>
+            <input id="name" name="name" type="text" value="{{ g.user['name'] }}" required>
+          </div>
+          <div class="field">
+            <label for="role">Role</label>
+            <select id="role" name="role">
+              {% for role in ["Inventory Manager", "Warehouse Staff", "Administrator"] %}
+                <option value="{{ role }}" {{ 'selected' if g.user['role'] == role }}>{{ role }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field span-2">
+            <label>Email address</label>
+            <input type="text" value="{{ g.user['email'] }}" disabled>
+            <span class="help">Email addresses identify your account and cannot be changed here.</span>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">Save changes</button>
+          <a class="btn btn-ghost" href="{{ url_for('auth.reset_password') }}">Change password</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="stack">
+    <div class="card">
+      <div class="card-head"><h2>Your activity</h2></div>
+      <div class="card-body">
+        <div class="split">
+          <div>
+            <div class="hero-label">Documents</div>
+            <div class="hero-value">{{ stats.documents }}</div>
+            <p class="muted small" style="margin:2px 0 0">created</p>
+          </div>
+          <div>
+            <div class="hero-label">Validated</div>
+            <div class="hero-value">{{ stats.validated }}</div>
+            <p class="muted small" style="margin:2px 0 0">completed</p>
+          </div>
+        </div>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+          <div class="hero-label">Ledger entries written</div>
+          <div class="hero-value">{{ stats.moves }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Session</h2></div>
+      <div class="card-body">
+        <p class="muted small">
+          Signed in as <strong>{{ g.user['email'] }}</strong>.
+        </p>
+        <a class="btn btn-danger" href="{{ url_for('auth.logout') }}">Log out</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,75 @@
+{# Shared presentational macros. Kept in one place so a badge or a route reads
+   the same everywhere it appears. #}
+
+{% set TAG_CLASS = {'receipt': 'in', 'delivery': 'out', 'internal': 'int', 'adjustment': 'adj'} %}
+
+{# Virtual locations are bookkeeping, not places. Show them as words, not codes. #}
+{% set VIRTUAL_LABELS = {
+     '__supplier__':   'Supplier',
+     '__customer__':   'Customer',
+     '__adjustment__': 'Adjustment',
+   } %}
+
+{% macro status_badge(status) %}
+  <span class="badge status-{{ status }}">
+    <span class="badge-dot"></span>{{ STATUS_LABELS.get(status, status) }}
+  </span>
+{% endmacro %}
+
+{% macro stock_badge(on_hand, reorder_min) %}
+  {% if on_hand <= 0 and reorder_min > 0 %}
+    <span class="badge stock-out"><span class="badge-dot"></span>Out of stock</span>
+  {% elif reorder_min > 0 and on_hand <= reorder_min %}
+    <span class="badge stock-low"><span class="badge-dot"></span>Low</span>
+  {% elif on_hand <= 0 %}
+    <span class="badge stock-out"><span class="badge-dot"></span>No stock</span>
+  {% else %}
+    <span class="badge stock-ok"><span class="badge-dot"></span>In stock</span>
+  {% endif %}
+{% endmacro %}
+
+{% macro doc_tag(doc_type) %}
+  <span class="tag tag-{{ TAG_CLASS.get(doc_type, '') }}">{{ DOC_TYPES[doc_type].label }}</span>
+{% endmacro %}
+
+{% macro move_tag(kind) %}
+  <span class="tag tag-{{ TAG_CLASS.get(kind, '') }}">{{ DOC_TYPES[kind].label }}</span>
+{% endmacro %}
+
+{# A location code, with virtual locations rendered as plain words. #}
+{% macro location(code, kind=None) %}
+  {%- if code in VIRTUAL_LABELS -%}
+    <span class="muted">{{ VIRTUAL_LABELS[code] }}</span>
+  {%- elif kind and kind != 'internal' -%}
+    <span class="muted">{{ code }}</span>
+  {%- else -%}
+    <span class="mono">{{ code }}</span>
+  {%- endif -%}
+{% endmacro %}
+
+{% macro route(src_code, src_kind, dst_code, dst_kind) %}
+  <span class="nowrap">{{ location(src_code, src_kind) }}
+    <span class="muted">→</span>
+    {{ location(dst_code, dst_kind) }}</span>
+{% endmacro %}
+
+{# The route a document represents. Adjustments have one warehouse, not two,
+   so they get their own phrasing rather than an arrow to nowhere. #}
+{% macro doc_route(d) %}
+  {%- if d['doc_type'] == 'receipt' -%}
+    <span class="muted">{{ d['supplier'] or 'Supplier' }}</span>
+    <span class="muted">→</span>
+    <span class="mono">{{ d['dst_warehouse_code'] }}</span>
+  {%- elif d['doc_type'] == 'delivery' -%}
+    <span class="mono">{{ d['src_warehouse_code'] }}</span>
+    <span class="muted">→</span>
+    <span class="muted">Customer</span>
+  {%- elif d['doc_type'] == 'adjustment' -%}
+    <span class="mono">{{ d['src_warehouse_code'] or d['dst_warehouse_code'] }}</span>
+    <span class="muted">&middot; physical count</span>
+  {%- else -%}
+    <span class="mono">{{ d['src_warehouse_code'] }}</span>
+    <span class="muted">→</span>
+    <span class="mono">{{ d['dst_warehouse_code'] }}</span>
+  {%- endif -%}
+{% endmacro %}

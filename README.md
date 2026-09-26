@@ -6,133 +6,170 @@ ledger, and stock levels that are always *derived* — never guessed.
 
 Built for **Odoo Hackathon 2026**.
 
----
-
-## Status
-
-| Area | State |
-| --- | --- |
-| Repository foundation | done |
-| Domain model | done — [`docs/domain-model.md`](docs/domain-model.md) |
-| API contract | done — [`spec/openapi.yaml`](spec/openapi.yaml) |
-| Reference implementation | runnable — [`reference/`](reference/) |
-| Application stack | **not finalised** — options in [`docs/architecture.md`](docs/architecture.md) |
-
-Nothing in this repository is throwaway. The domain model, the API contract and
-the movement semantics are all stack-independent, so whichever framework the team
-settles on, the reasoning in `docs/` still applies and the reference
-implementation still runs.
+![Inventory dashboard](docs/screenshots/dashboard.png)
 
 ---
-
-## The problem
-
-Small and mid-size distributors run their warehouses on paper registers and
-Excel. The failure modes are predictable and expensive:
-
-- **Counts drift.** Nothing reconciles what the register says against what is on the shelf.
-- **Transfers vanish.** Stock moves between warehouses and nobody records it.
-- **Reorder points are guesswork.** You find out you ran out when a customer asks.
-- **No audit trail.** When the count is wrong, there is no way to find out why.
-- **Month-end takes days.** Closing the books means manually tallying stacks of paper.
-
-## The approach
-
-One core idea carries the whole design:
-
-> **Stock levels are derived. The movement ledger is the only source of truth.**
-
-Every change to inventory — a receipt, a delivery, a transfer, a correction — is
-an immutable entry in a single ledger. On-hand quantities are computed by folding
-that ledger. This one decision buys three things at once: levels can never drift
-out of sync with history, every number is traceable to the moves that produced
-it, and audit is a by-product rather than a feature you have to build later.
-
-## Modules
-
-StockSense is deliberately modular. Each module owns one concern and can be built
-and tested independently.
-
-| Module | Responsibility |
-| --- | --- |
-| `catalog` | Products, SKUs, categories, units of measure |
-| `network` | Warehouses and physical bin locations |
-| `ledger` | Stock moves — receipts, deliveries, transfers, adjustments |
-| `levels` | On-hand quantities derived from the ledger |
-| `reorder` | Min/max rules and low-stock alerts |
-| `valuation` | Inventory value at cost, per warehouse |
-| `dashboard` | Reporting API and operator UI |
-
-See [`docs/architecture.md`](docs/architecture.md) for how these fit together and
-[`docs/roadmap.md`](docs/roadmap.md) for who builds what, when.
 
 ## Quickstart
 
-The reference implementation has **no dependencies** — Python 3.11+ standard
-library only.
-
 ```bash
-cd reference
-python3 demo.py          # end-to-end walkthrough, prints the derived state
-python3 -m unittest -v   # 53 tests covering the core invariants
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+python -m app.seed     # build the demo database
+python run.py          # http://127.0.0.1:5000
 ```
 
-Abridged output from `demo.py`:
+Sign in with **`admin@stocksense.dev`** / **`demo1234`**.
+
+The seeder creates three warehouses, fifteen products, and twelve documents
+across every status — so the dashboard, alerts and ledger all have something
+real in them the moment you sign in.
+
+## What is built
+
+Every item in the problem statement, working:
+
+| Spec requirement | Where |
+| --- | --- |
+| Sign up / log in | `/signup`, `/login` |
+| OTP-based password reset | `/forgot-password` → `/reset-password` |
+| Redirect to dashboard after auth | `/` |
+| KPI — total products in stock | Dashboard |
+| KPI — low stock / out of stock items | Dashboard |
+| KPI — pending receipts | Dashboard |
+| KPI — pending deliveries | Dashboard |
+| KPI — internal transfers scheduled | Dashboard |
+| Filter by document type | Dashboard, every operation list |
+| Filter by status (draft/waiting/ready/done/canceled) | Dashboard, every operation list |
+| Filter by warehouse or location | Dashboard, every operation list |
+| Filter by product category | Dashboard, every operation list |
+| Products — create, update, categories, UoM | `/products` |
+| Products — stock availability per location | Product detail |
+| Products — reordering rules | Product detail, low-stock alerts |
+| Receipts — supplier, products, quantities, validate | `/operations/receipt` |
+| Delivery orders — pick, pack, validate | `/operations/delivery` |
+| Internal transfers — warehouse to warehouse, rack to rack | `/operations/internal` |
+| Inventory adjustment — counted quantity vs recorded | `/operations/adjustment` |
+| Move history (the ledger) | `/moves` |
+| Settings — warehouses and locations | `/settings/warehouses` |
+| Profile menu — my profile, logout | Sidebar |
+| Low stock alerts | Dashboard, `/products?stock=low` |
+| Multi-warehouse support | Everywhere |
+| SKU search and smart filters | Products, moves, documents |
+
+## The idea that carries the design
+
+> **The movement ledger is the only source of truth. Stock levels are derived.**
+
+Every change to inventory is an immutable row in `stock_moves`. On-hand
+quantities are computed by folding that table — there is no stored level
+anywhere in the database, and no code path that sets one. Three consequences
+fall out for free:
+
+- **Levels cannot drift from history**, because there is only one number and it
+  is computed from the moves.
+- **Every figure is explainable.** "Why is it 377?" — open the move history and
+  count the rows.
+- **Audit is a by-product**, not a feature someone has to build later.
+
+A second rule keeps the two halves honest: **documents carry a status workflow,
+and stock changes only when a document is validated.** A draft receipt is a
+plan. Validating it is the moment goods are real.
 
 ```
-StockSense reference walkthrough
-==================================================================
-
-Receipts
-  PO-2026-0114      120 x WIDGET-A   supplier -> MAIN/STOCK
-  PO-2026-0115       40 x WIDGET-A   supplier -> NORTH/STOCK
-  ...
-
-Transfers
-  TRF-2026-0031      30 x WIDGET-A   MAIN/STOCK -> NORTH/STOCK
-
-On hand
-  WIDGET-A   MAIN          65
-  WIDGET-A   NORTH         70
-  BOLT-M8    MAIN           8
-  ------------------------------
-  total                   390   (across 5 lines)
-
-Availability guard
-  Attempting to deliver 500 x WIDGET-A from MAIN ...
-  refused: Cannot deliver 500 of WIDGET-A from MAIN/STOCK; only 65 on hand there
-
-Low stock
-  BOLT-M8    MAIN    8 on hand, minimum 50 -> order 92
-
-Valuation
-  MAIN           3,743.50
-  NORTH          5,465.00
-  total          9,208.50
-
-Ledger (newest 6 of 8 moves)
-  #8   2026-09-26 09:12:27  adjustment     6 x GASKET-3   ADJ-2026-0007
-  ...
-  Every number above traces back to one of these rows.
+draft ──→ waiting ──→ ready ──→ done          done = stock has moved
+  └──────────────────────────→ canceled        canceled = it never will
 ```
 
-## Repository layout
+The system also refuses to record impossible states. Try to deliver more than
+you hold and it will not let you:
+
+```
+Not enough stock: CHAIR-ERG has 28 at MAIN/STOCK but the document needs 99999
+```
+
+## Architecture
+
+```
+┌──────────────────────────────────────────┐
+│  Dashboard / operator UI                 │   Jinja2 templates
+└──────────────────┬───────────────────────┘
+┌──────────────────▼───────────────────────┐
+│  Flask views  (auth, products, ops, ...) │   blueprints
+└──────────────────┬───────────────────────┘
+┌──────────────────▼───────────────────────┐
+│  app/engine.py — the domain              │   no Flask, no HTTP
+│  ledger · derived levels · validation    │
+└──────────────────┬───────────────────────┘
+┌──────────────────▼───────────────────────┐
+│  SQLite — stock_moves is append-only     │   v_stock_levels view
+└──────────────────────────────────────────┘
+```
+
+Deliberately boring technology: Flask, SQLite, server-rendered HTML, one
+hand-written stylesheet. No build step, no bundler, no `node_modules`. It runs
+on a laptop with two commands and it will run on the demo machine.
+
+`app/engine.py` holds every rule that matters and knows nothing about HTTP.
+That is the layer to read if you want to understand the system.
+
+## Project layout
 
 ```
 .
-├── README.md
-├── CONTRIBUTING.md          # branch strategy, commit conventions, PR flow
-├── docs/
-│   ├── architecture.md      # system design + stack options
-│   ├── domain-model.md      # entities, relationships, invariants
-│   └── roadmap.md           # phased plan and workstreams
-├── spec/
-│   └── openapi.yaml         # REST contract — implement against this
-└── reference/
-    ├── stock_engine.py      # working implementation of the domain logic
-    ├── test_stock_engine.py # invariant tests
-    └── demo.py              # runnable walkthrough
+├── app/
+│   ├── __init__.py            # app factory, template filters
+│   ├── db.py                  # SQLite access layer
+│   ├── schema.sql             # tables + the derived-levels view
+│   ├── engine.py              # the domain: ledger, levels, validation
+│   ├── auth.py                # signup, login, OTP reset, profile
+│   ├── views_dashboard.py     # KPIs and filters
+│   ├── views_products.py      # catalogue
+│   ├── views_operations.py    # receipts, deliveries, transfers, adjustments
+│   ├── views_settings.py      # warehouses and locations
+│   ├── seed.py                # demo dataset
+│   ├── templates/             # Jinja2
+│   └── static/css/app.css     # the whole stylesheet
+├── tests/test_app.py          # 78 end-to-end tests
+├── reference/                 # standalone domain spec, stdlib only
+├── docs/                      # domain model, architecture, roadmap
+├── spec/openapi.yaml          # REST contract
+└── run.py
 ```
+
+## Tests
+
+```bash
+python -m unittest discover -s tests     # 78 application tests
+cd reference && python -m unittest       # 53 domain invariant tests
+```
+
+The application suite drives the real Flask app against a throwaway database:
+every route, every workflow, every status transition, and the domain invariants
+re-checked against real SQL. The reference suite pins the semantics
+independently of any framework.
+
+`reference/` is a standalone, dependency-free implementation of the domain with
+its own test suite. It exists so the inventory rules can be reasoned about and
+tested without Flask, SQLite or HTTP in the way.
+
+## Documentation
+
+| Document | What it covers |
+| --- | --- |
+| [`docs/domain-model.md`](docs/domain-model.md) | Entities, move kinds, status workflow, invariants |
+| [`docs/architecture.md`](docs/architecture.md) | Layering, module boundaries, stack decision |
+| [`docs/roadmap.md`](docs/roadmap.md) | Phases, workstreams, demo script |
+| [`spec/openapi.yaml`](spec/openapi.yaml) | REST contract |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branch strategy, commit conventions, PR flow |
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Products](docs/screenshots/products.png) | ![Document detail](docs/screenshots/document-detail.png) |
+| ![Move history](docs/screenshots/move-history.png) | ![Warehouses](docs/screenshots/warehouses.png) |
 
 ## Team
 
@@ -143,8 +180,20 @@ Ledger (newest 6 of 8 moves)
 | [@Xranger-rootX](https://github.com/Xranger-rootX) | Collaborator |
 | [@kottanamanikanta1-dot](https://github.com/kottanamanikanta1-dot) | Collaborator |
 
-Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before your first push — `main` is the
-demo-ready branch and is not committed to directly.
+## Known limitations
+
+Honest list, so nobody is surprised on stage:
+
+- **OTP reset has no mail service.** The code is displayed on screen in demo
+  mode, clearly labelled. Swapping in a real send touches one function.
+- **No role enforcement.** The role field is recorded and displayed, but every
+  signed-in user can do everything. Real deployments need permission checks.
+- **Levels are folded on every read.** Correct and simple; O(moves). Fine at
+  demo scale, and `docs/domain-model.md` describes the cache to add later.
+- **No CSRF tokens.** Flask-WTF would be the fix. Acceptable for a demo, not for
+  production.
+- **Reservations, lot tracking and multi-UoM conversion are out of scope** —
+  listed in the domain model's omissions section.
 
 ## License
 

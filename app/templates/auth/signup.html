@@ -1,0 +1,51 @@
+{% extends "auth_base.html" %}
+{% block title %}Create account · StockSense{% endblock %}
+
+{% block content %}
+  <h1>Create your account</h1>
+  <p class="lead">Takes a moment. No credit card, no setup.</p>
+
+  <form method="post">
+    <div class="field">
+      <label for="name">Full name</label>
+      <input id="name" name="name" type="text" value="{{ form.get('name', '') }}"
+             autocomplete="name" required autofocus>
+    </div>
+
+    <div class="field">
+      <label for="email">Email address</label>
+      <input id="email" name="email" type="email" value="{{ form.get('email', '') }}"
+             autocomplete="email" required>
+    </div>
+
+    <div class="field">
+      <label for="role">Role</label>
+      <select id="role" name="role">
+        {% for role in ["Inventory Manager", "Warehouse Staff", "Administrator"] %}
+          <option value="{{ role }}"
+            {{ 'selected' if form.get('role') == role }}>{{ role }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password"
+             autocomplete="new-password" minlength="8" required>
+      <span class="help">At least 8 characters.</span>
+    </div>
+
+    <div class="field">
+      <label for="confirm">Confirm password</label>
+      <input id="confirm" name="confirm" type="password"
+             autocomplete="new-password" minlength="8" required>
+    </div>
+
+    <button class="btn btn-primary" type="submit">Create account</button>
+  </form>
+
+  <div class="auth-links">
+    <span class="muted">Already have an account?</span>
+    <a href="{{ url_for('auth.login') }}">Sign in</a>
+  </div>
+{% endblock %}

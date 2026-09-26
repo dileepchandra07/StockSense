@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui with context %}
+{% block title %}{{ warehouse['code'] }} · StockSense{% endblock %}
+{% block heading %}{{ warehouse['name'] }}{% endblock %}
+{% block subheading %}<span class="mono">{{ warehouse['code'] }}</span>{% if warehouse['address'] %} &middot; {{ warehouse['address'] }}{% endif %}{% endblock %}
+
+{% block actions %}
+  <a class="btn" href="{{ url_for('settings.warehouses') }}">All warehouses</a>
+  <a class="btn btn-primary" href="{{ url_for('operations.create', doc_type='receipt') }}">Receive stock</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="grid grid-2">
+
+  <div class="card">
+    <div class="card-head"><h2>Warehouse details</h2></div>
+    <div class="card-body">
+      <form method="post">
+        <div class="field">
+          <label>Code</label>
+          <input type="text" value="{{ warehouse['code'] }}" disabled>
+          <span class="help">Codes appear in location names and cannot change.</span>
+        </div>
+        <div class="field" style="margin-top:13px">
+          <label for="name">Name</label>
+          <input id="name" name="name" type="text" value="{{ warehouse['name'] }}" required>
+        </div>
+        <div class="field" style="margin-top:13px">
+          <label for="address">Address</label>
+          <textarea id="address" name="address">{{ warehouse['address'] }}</textarea>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">Save changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Locations</h2>
+      <span class="hint">{{ locations|length }} defined</span>
+    </div>
+
+    <form class="inline-form" style="grid-template-columns:1.2fr 1.6fr auto" method="post"
+          action="{{ url_for('settings.add_location', warehouse_id=warehouse['id']) }}">
+      <div class="field">
+        <label>Code</label>
+        <input name="code" type="text" placeholder="RACK-A" required>
+      </div>
+      <div class="field">
+        <label>Name</label>
+        <input name="name" type="text" placeholder="Aisle A, rack 1">
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <button class="btn" type="submit">Add</button>
+      </div>
+    </form>
+
+    {% if locations %}
+    <table class="table">
+      <thead><tr><th>Code</th><th>Name</th><th>Kind</th><th></th></tr></thead>
+      <tbody>
+        {% for l in locations %}
+        <tr>
+          <td class="mono">{{ l['code'] }}</td>
+          <td class="small">{{ l['name'] }}</td>
+          <td><span class="tag">{{ l['kind'] }}</span></td>
+          <td class="right">
+            <form method="post" action="{{ url_for('settings.delete_location', location_id=l['id']) }}">
+              <button class="btn btn-sm btn-danger" type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="table-empty">No locations defined.</div>
+    {% endif %}
+  </div>
+
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Stock in this warehouse</h2>
+    <span class="hint">{{ levels|length }} product/location pair{{ '' if levels|length == 1 else 's' }} holding stock</span>
+  </div>
+  {% if levels %}
+  <table class="table">
+    <thead>
+      <tr><th>Product</th><th>Location</th><th class="right">Quantity</th></tr>
+    </thead>
+    <tbody>
+      {% for l in levels %}
+      <tr>
+        <td>
+          <a class="sku" href="{{ url_for('products.detail', product_id=l['product_id']) }}">{{ l['sku'] }}</a>
+          <div class="muted small">{{ l['product_name'] }}</div>
+        </td>
+        <td class="mono small">{{ l['location_code'] }}</td>
+        <td class="right strong">{{ l['qty']|qty }} <span class="muted small">{{ l['uom'] }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="table-empty">
+    Nothing stored here yet.
+    <a href="{{ url_for('operations.create', doc_type='receipt') }}">Record a receipt</a>.
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

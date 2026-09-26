@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui with context %}
+{% block title %}Dashboard · StockSense{% endblock %}
+{% block heading %}Inventory Dashboard{% endblock %}
+{% block subheading %}A live snapshot of stock, operations and alerts{% endblock %}
+
+{% block actions %}
+  <a class="btn" href="{{ url_for('operations.moves') }}">Move history</a>
+  <a class="btn btn-primary" href="{{ url_for('operations.create', doc_type='receipt') }}">New receipt</a>
+{% endblock %}
+
+{% block content %}
+
+<!-- KPIs -->
+<div class="kpi-grid">
+  <div class="kpi kpi-ok">
+    <span class="kpi-label">Products in stock</span>
+    <span class="kpi-value">{{ kpis.products_in_stock }}</span>
+    <span class="kpi-hint">
+      {{ kpis.total_units|qty }} units &middot; {{ kpis.total_products }} in catalogue
+    </span>
+  </div>
+
+  <div class="kpi {{ 'kpi-danger' if kpis.out_of_stock else 'kpi-warn' }}">
+    <span class="kpi-label">Low / out of stock</span>
+    <span class="kpi-value">{{ kpis.low_stock + kpis.out_of_stock }}</span>
+    <span class="kpi-hint">
+      {{ kpis.low_stock }} low &middot; {{ kpis.out_of_stock }} out
+    </span>
+  </div>
+
+  <div class="kpi">
+    <span class="kpi-label">Pending receipts</span>
+    <span class="kpi-value">{{ kpis.pending_receipts }}</span>
+    <span class="kpi-hint"><a href="{{ url_for('operations.listing', doc_type='receipt', status='draft') }}">Incoming stock to process</a></span>
+  </div>
+
+  <div class="kpi">
+    <span class="kpi-label">Pending deliveries</span>
+    <span class="kpi-value">{{ kpis.pending_deliveries }}</span>
+    <span class="kpi-hint"><a href="{{ url_for('operations.listing', doc_type='delivery') }}">Outgoing stock to ship</a></span>
+  </div>
+
+  <div class="kpi">
+    <span class="kpi-label">Transfers scheduled</span>
+    <span class="kpi-value">{{ kpis.scheduled_transfers }}</span>
+    <span class="kpi-hint"><a href="{{ url_for('operations.listing', doc_type='internal') }}">Internal movements</a></span>
+  </div>
+</div>
+
+<!-- Documents with dynamic filters -->
+<div class="card">
+  <div class="card-head">
+    <h2>Operations</h2>
+    <span class="hint">
+      {{ documents|length }} document{{ '' if documents|length == 1 else 's' }}
+      {%- if has_filters %} matching your filters{% endif %} &middot;
+      {{ kpis.ledger_entries }} ledger entries
+    </span>
+  </div>
+
+  <form class="filters" method="get">
+    <div class="field">
+      <label for="f-type">Document type</label>
+      <select id="f-type" name="doc_type">
+        <option value="">All types</option>
+        {% for key, meta in DOC_TYPES.items() %}
+          <option value="{{ key }}" {{ 'selected' if filters.doc_type == key }}>{{ meta.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="f-status">Status</label>
+      <select id="f-status" name="status">
+        <option value="">All statuses</option>
+        {% for status in STATUSES %}
+          <option value="{{ status }}" {{ 'selected' if filters.status == status }}>{{ STATUS_LABELS[status] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="f-wh">Warehouse</label>
+      <select id="f-wh" name="warehouse">
+        <option value="">All warehouses</option>
+        {% for w in warehouses %}
+          <option value="{{ w['id'] }}" {{ 'selected' if filters.warehouse_id == w['id'] }}>{{ w['code'] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="f-cat">Category</label>
+      <select id="f-cat" name="category">
+        <option value="">All categories</option>
+        {% for c in categories %}
+          <option value="{{ c['id'] }}" {{ 'selected' if filters.category_id == c['id'] }}>{{ c['name'] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field grow">
+      <label for="f-q">Search</label>
+      <input id="f-q" name="q" type="search" value="{{ filters.search or '' }}"
+             placeholder="Reference or supplier">
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" type="submit">Apply</button>
+      {% if has_filters %}
+        <a class="btn btn-ghost" href="{{ url_for('dashboard.index') }}">Clear</a>
+      {% endif %}
+    </div>
+  </form>
+
+  {% if documents %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Reference</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Route</th>
+        <th class="right">Lines</th>
+        <th class="right">Qty</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in documents %}
+      <tr>
+        <td><a class="mono" href="{{ url_for('operations.detail', document_id=d['id']) }}">{{ d['reference'] }}</a></td>
+        <td>{{ ui.doc_tag(d['doc_type']) }}</td>
+        <td>{{ ui.status_badge(d['status']) }}</td>
+        <td class="small">{{ ui.doc_route(d) }}</td>
+        <td class="right">{{ d['line_count'] }}</td>
+        <td class="right strong">{{ d['total_qty']|qty }}</td>
+        <td class="small muted nowrap">{{ d['created_at'][:16] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="table-empty">
+    No documents match these filters.
+    {% if has_filters %}<a href="{{ url_for('dashboard.index') }}">Clear them</a> to see everything.{% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- Alerts -->
+<div class="grid grid-2" style="margin-top:18px">
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Low stock alerts</h2>
+      <a class="hint" href="{{ url_for('products.index', stock='low') }}">View all</a>
+    </div>
+    {% if low %}
+      <table class="table">
+        <thead>
+          <tr><th>Product</th><th class="right">On hand</th><th class="right">Minimum</th><th class="right">Suggested order</th></tr>
+        </thead>
+        <tbody>
+          {% for p in low %}
+          <tr>
+            <td>
+              <a class="sku" href="{{ url_for('products.detail', product_id=p['id']) }}">{{ p['sku'] }}</a>
+              <div class="muted small">{{ p['name'] }}</div>
+            </td>
+            <td class="right strong">{{ p['on_hand']|qty }}</td>
+            <td class="right muted">{{ p['reorder_min']|qty }}</td>
+            <td class="right">
+              <span class="badge stock-low">
+                {{ (p['reorder_max'] - p['on_hand'])|qty }} {{ p['uom'] }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="table-empty">Everything is above its reorder point.</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Out of stock</h2>
+      <a class="hint" href="{{ url_for('products.index', stock='out') }}">View all</a>
+    </div>
+    {% if out %}
+      <table class="table">
+        <thead>
+          <tr><th>Product</th><th>Category</th><th class="right">Minimum</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for p in out %}
+          <tr>
+            <td>
+              <a class="sku" href="{{ url_for('products.detail', product_id=p['id']) }}">{{ p['sku'] }}</a>
+              <div class="muted small">{{ p['name'] }}</div>
+            </td>
+            <td class="small muted">{{ p['category_name'] or '—' }}</td>
+            <td class="right muted">{{ p['reorder_min']|qty }}</td>
+            <td class="right"><span class="badge stock-out">Order now</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="table-empty">Nothing is out of stock.</div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Recent ledger activity -->
+<div class="card">
+  <div class="card-head">
+    <h2>Recent ledger activity</h2>
+    <a class="hint" href="{{ url_for('operations.moves') }}">Full move history</a>
+  </div>
+  {% if recent %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>#</th><th>When</th><th>Type</th><th>Product</th>
+        <th class="right">Qty</th><th>From</th><th>To</th><th>Reference</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in recent %}
+      <tr>
+        <td class="muted mono">{{ m['id'] }}</td>
+        <td class="small muted nowrap">{{ m['created_at'][:16] }}</td>
+        <td>{{ ui.move_tag(m['kind']) }}</td>
+        <td><span class="sku">{{ m['sku'] }}</span></td>
+        <td class="right strong">{{ m['qty']|qty }} <span class="muted small">{{ m['uom'] }}</span></td>
+        <td class="small">{{ ui.location(m['src_code'], m['src_kind']) }}</td>
+        <td class="small">{{ ui.location(m['dst_code'], m['dst_kind']) }}</td>
+        <td class="small">
+          {% if m['document_id'] %}
+            <a class="mono" href="{{ url_for('operations.detail', document_id=m['document_id']) }}">{{ m['reference'] }}</a>
+          {% else %}
+            <span class="mono">{{ m['reference'] }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="table-empty">
+    The ledger is empty. <a href="{{ url_for('operations.create', doc_type='receipt') }}">Record a receipt</a> to get started.
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}New {{ meta.label|lower }} · StockSense{% endblock %}
+{% block heading %}New {{ meta.label|lower }}{% endblock %}
+{% block subheading %}
+  {% if doc_type == 'receipt' %}
+    Choose who supplied the goods and which warehouse receives them
+  {% elif doc_type == 'delivery' %}
+    Choose which warehouse the goods ship from
+  {% elif doc_type == 'internal' %}
+    Choose the source and destination warehouse
+  {% else %}
+    Choose the warehouse you are counting
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:760px">
+  <div class="card-body">
+    <form method="post">
+      <div class="form-grid">
+
+        {% if doc_type == 'receipt' %}
+          <div class="field span-2">
+            <label for="supplier">Supplier</label>
+            <input id="supplier" name="supplier" type="text"
+                   value="{{ form.get('supplier', '') }}" placeholder="Tata Steel" required>
+          </div>
+          <div class="field span-2">
+            <label for="dst_warehouse_id">Receiving warehouse</label>
+            <select id="dst_warehouse_id" name="dst_warehouse_id" required>
+              <option value="">Choose a warehouse</option>
+              {% for w in warehouses %}
+                <option value="{{ w['id'] }}">{{ w['code'] }} — {{ w['name'] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
+
+        {% if doc_type == 'delivery' %}
+          <div class="field span-2">
+            <label for="src_warehouse_id">Shipping warehouse</label>
+            <select id="src_warehouse_id" name="src_warehouse_id" required>
+              <option value="">Choose a warehouse</option>
+              {% for w in warehouses %}
+                <option value="{{ w['id'] }}">{{ w['code'] }} — {{ w['name'] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
+
+        {% if doc_type == 'internal' %}
+          <div class="field">
+            <label for="src_warehouse_id">From warehouse</label>
+            <select id="src_warehouse_id" name="src_warehouse_id" required>
+              <option value="">Choose a warehouse</option>
+              {% for w in warehouses %}
+                <option value="{{ w['id'] }}">{{ w['code'] }} — {{ w['name'] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="dst_warehouse_id">To warehouse</label>
+            <select id="dst_warehouse_id" name="dst_warehouse_id" required>
+              <option value="">Choose a warehouse</option>
+              {% for w in warehouses %}
+                <option value="{{ w['id'] }}">{{ w['code'] }} — {{ w['name'] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
+
+        {% if doc_type == 'adjustment' %}
+          <div class="field span-2">
+            <label for="src_warehouse_id">Warehouse being counted</label>
+            <select id="src_warehouse_id" name="src_warehouse_id" required>
+              <option value="">Choose a warehouse</option>
+              {% for w in warehouses %}
+                <option value="{{ w['id'] }}">{{ w['code'] }} — {{ w['name'] }}</option>
+              {% endfor %}
+            </select>
+            <span class="help">You will enter the counted quantity per product on the next screen.</span>
+          </div>
+        {% endif %}
+
+        <div class="field span-2">
+          <label for="notes">Notes <span class="muted">(optional)</span></label>
+          <textarea id="notes" name="notes" placeholder="Anything worth recording about this document">{{ form.get('notes', '') }}</textarea>
+        </div>
+
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Create draft</button>
+        <a class="btn btn-ghost" href="{{ url_for('operations.listing', doc_type=doc_type) }}">Cancel</a>
+      </div>
+
+      <p class="muted small" style="margin-top:14px">
+        Documents start as a <strong>draft</strong> and do not touch stock.
+        Add the product lines, then validate when the goods actually move.
+      </p>
+    </form>
+  </div>
+</div>
+{% endblock %}

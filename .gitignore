@@ -15,6 +15,9 @@ credentials.json
 *.sqlite3
 *.db
 
+# Local assistant/agent workspace state -- project notes, not source.
+.workbuddy-ai/
+
 # --- Python -----------------------------------------------------------------
 __pycache__/
 *.py[cod]

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}New warehouse · StockSense{% endblock %}
+{% block heading %}New warehouse{% endblock %}
+{% block subheading %}A warehouse is where stock lives{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:680px">
+  <div class="card-body">
+    <form method="post">
+      <div class="form-grid">
+        <div class="field">
+          <label for="code">Code</label>
+          <input id="code" name="code" type="text" value="{{ form.get('code', '') }}"
+                 placeholder="NORTH" required autofocus>
+          <span class="help">Short, uppercase. Used in document routes and location codes.</span>
+        </div>
+        <div class="field">
+          <label for="name">Name</label>
+          <input id="name" name="name" type="text" value="{{ form.get('name', '') }}"
+                 placeholder="North Regional Depot" required>
+        </div>
+        <div class="field span-2">
+          <label for="address">Address <span class="muted">(optional)</span></label>
+          <textarea id="address" name="address"
+                    placeholder="Plot 14, Industrial Estate">{{ form.get('address', '') }}</textarea>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Create warehouse</button>
+        <a class="btn btn-ghost" href="{{ url_for('settings.warehouses') }}">Cancel</a>
+      </div>
+
+      <p class="muted small" style="margin-top:14px">
+        A default <code>&lt;CODE&gt;/STOCK</code> location is created automatically,
+        so the warehouse can receive goods straight away.
+      </p>
+    </form>
+  </div>
+</div>
+{% endblock %}

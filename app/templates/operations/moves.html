@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui with context %}
+{% block title %}Move history · StockSense{% endblock %}
+{% block heading %}Move History{% endblock %}
+{% block subheading %}
+  The ledger — {{ moves|length }} entr{{ 'y' if moves|length == 1 else 'ies' }}.
+  Every quantity in StockSense traces back to a row here.
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+  <form class="filters" method="get">
+    <div class="field">
+      <label for="product">Product</label>
+      <select id="product" name="product">
+        <option value="">All products</option>
+        {% for p in products %}
+          <option value="{{ p['id'] }}" {{ 'selected' if filters.product_id == p['id'] }}>{{ p['sku'] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="doc_type">Movement type</label>
+      <select id="doc_type" name="doc_type">
+        <option value="">All types</option>
+        {% for key, meta in DOC_TYPES.items() %}
+          <option value="{{ key }}" {{ 'selected' if filters.doc_type == key }}>{{ meta.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="warehouse">Warehouse</label>
+      <select id="warehouse" name="warehouse">
+        <option value="">All warehouses</option>
+        {% for w in warehouses %}
+          <option value="{{ w['id'] }}" {{ 'selected' if filters.warehouse_id == w['id'] }}>{{ w['code'] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field grow">
+      <label for="q">Search</label>
+      <input id="q" name="q" type="search" value="{{ filters.search or '' }}" placeholder="Reference, SKU or name">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" type="submit">Filter</button>
+      {% if has_filters %}<a class="btn btn-ghost" href="{{ url_for('operations.moves') }}">Clear</a>{% endif %}
+    </div>
+  </form>
+
+  {% if moves %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>#</th><th>When</th><th>Type</th><th>Product</th>
+        <th class="right">Qty</th><th>From</th><th>To</th>
+        <th>Reference</th><th>By</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in moves %}
+      <tr>
+        <td class="muted mono">{{ m['id'] }}</td>
+        <td class="small muted nowrap">{{ m['created_at'][:16] }}</td>
+        <td>{{ ui.move_tag(m['kind']) }}</td>
+        <td>
+          <a class="sku" href="{{ url_for('products.detail', product_id=m['product_id']) }}">{{ m['sku'] }}</a>
+          <div class="muted small">{{ m['product_name'] }}</div>
+        </td>
+        <td class="right strong nowrap">{{ m['qty']|qty }} <span class="muted small">{{ m['uom'] }}</span></td>
+        <td class="small">{{ ui.location(m['src_code'], m['src_kind']) }}</td>
+        <td class="small">{{ ui.location(m['dst_code'], m['dst_kind']) }}</td>
+        <td class="small">
+          {% if m['document_id'] %}
+            <a class="mono" href="{{ url_for('operations.detail', document_id=m['document_id']) }}">{{ m['reference'] }}</a>
+          {% else %}
+            <span class="mono">{{ m['reference'] }}</span>
+          {% endif %}
+        </td>
+        <td class="small muted">{{ m['created_by_name'] or 'system' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="table-empty">
+    {% if has_filters %}
+      No movements match these filters. <a href="{{ url_for('operations.moves') }}">Clear them.</a>
+    {% else %}
+      The ledger is empty. Validate a receipt to write the first entry.
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <strong>Why this page matters</strong>
+    <p class="muted small" style="margin:6px 0 0">
+      Stock levels are never stored. They are folded from this table every time they are
+      shown. That means a number on the dashboard can always be explained by the rows
+      here — who moved it, when, and against which document. Moves are append-only:
+      to undo one, you record its reverse, so the correction stays visible.
+    </p>
+  </div>
+</div>
+
+{% endblock %}

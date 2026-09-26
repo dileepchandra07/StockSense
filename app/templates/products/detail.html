@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui with context %}
+{% block title %}{{ product['sku'] }} · StockSense{% endblock %}
+{% block heading %}{{ product['name'] }}{% endblock %}
+{% block subheading %}
+  <span class="sku">{{ product['sku'] }}</span>
+  {% if product['category_name'] %} &middot; {{ product['category_name'] }}{% endif %}
+{% endblock %}
+
+{% block actions %}
+  <a class="btn" href="{{ url_for('products.edit', product_id=product['id']) }}">Edit</a>
+  <a class="btn" href="{{ url_for('operations.create', doc_type='adjustment') }}">Adjust stock</a>
+  <a class="btn btn-primary" href="{{ url_for('operations.create', doc_type='receipt') }}">Receive stock</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="kpi-grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+  <div class="kpi kpi-ok">
+    <span class="kpi-label">On hand</span>
+    <span class="kpi-value">{{ on_hand|qty }}</span>
+    <span class="kpi-hint">{{ product['uom'] }} across all warehouses</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Unit cost</span>
+    <span class="kpi-value">{{ product['unit_cost']|money }}</span>
+    <span class="kpi-hint">per {{ product['uom'] }}</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Stock value</span>
+    <span class="kpi-value">{{ (on_hand * product['unit_cost'])|money }}</span>
+    <span class="kpi-hint">at cost</span>
+  </div>
+  <div class="kpi {{ 'kpi-warn' if product['reorder_min'] and on_hand <= product['reorder_min'] else '' }}">
+    <span class="kpi-label">Reorder point</span>
+    <span class="kpi-value">{{ product['reorder_min']|qty }}</span>
+    <span class="kpi-hint">top up to {{ product['reorder_max']|qty }}</span>
+  </div>
+</div>
+
+<div class="grid grid-2">
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Availability by location</h2>
+      <span class="hint">{{ levels|length }} location{{ '' if levels|length == 1 else 's' }} holding stock</span>
+    </div>
+    {% if levels %}
+    <table class="table">
+      <thead>
+        <tr><th>Location</th><th>Warehouse</th><th>Kind</th><th class="right">Quantity</th></tr>
+      </thead>
+      <tbody>
+        {% for l in levels %}
+        <tr>
+          <td class="mono">{{ l['location_code'] }}</td>
+          <td class="small muted">{{ l['warehouse_code'] or '—' }}</td>
+          <td class="small muted">{{ l['location_kind'] }}</td>
+          <td class="right strong">{{ l['qty']|qty }} <span class="muted small">{{ product['uom'] }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="table-empty">No stock recorded for this product yet.</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>By warehouse</h2></div>
+    {% if by_warehouse %}
+    <table class="table">
+      <thead><tr><th>Warehouse</th><th>Name</th><th class="right">On hand</th></tr></thead>
+      <tbody>
+        {% for w in by_warehouse %}
+        <tr>
+          <td class="mono">{{ w['warehouse_code'] }}</td>
+          <td class="small muted">{{ w['warehouse_name'] }}</td>
+          <td class="right strong">{{ w['qty']|qty }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="table-empty">Nothing in any warehouse.</div>
+    {% endif %}
+    <div class="card-foot">
+      <div class="between">
+        <span>Total</span>
+        <strong>{{ on_hand|qty }} {{ product['uom'] }}</strong>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Movement history</h2>
+    <a class="hint" href="{{ url_for('operations.moves', product=product['id']) }}">Open in move history</a>
+  </div>
+  {% if moves %}
+  <table class="table">
+    <thead>
+      <tr><th>#</th><th>When</th><th>Type</th><th class="right">Qty</th><th>From</th><th>To</th><th>Reference</th><th>By</th></tr>
+    </thead>
+    <tbody>
+      {% for m in moves %}
+      <tr>
+        <td class="muted mono">{{ m['id'] }}</td>
+        <td class="small muted nowrap">{{ m['created_at'][:16] }}</td>
+        <td>{{ ui.move_tag(m['kind']) }}</td>
+        <td class="right strong">{{ m['qty']|qty }}</td>
+        <td class="small">{{ ui.location(m['src_code'], m['src_kind']) }}</td>
+        <td class="small">{{ ui.location(m['dst_code'], m['dst_kind']) }}</td>
+        <td class="small">
+          {% if m['document_id'] %}
+            <a class="mono" href="{{ url_for('operations.detail', document_id=m['document_id']) }}">{{ m['reference'] }}</a>
+          {% else %}<span class="mono">{{ m['reference'] }}</span>{% endif %}
+        </td>
+        <td class="small muted">{{ m['created_by_name'] or 'system' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="table-empty">No movements recorded for this product yet.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-body between">
+    <div>
+      <strong>Archive this product</strong>
+      <p class="muted small" style="margin:2px 0 0">
+        Hides it from the catalogue. Its ledger history is untouched — nothing is ever deleted.
+      </p>
+    </div>
+    <form method="post" action="{{ url_for('products.archive', product_id=product['id']) }}">
+      <button class="btn btn-danger" type="submit">Archive</button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Something went wrong · StockSense{% endblock %}
+{% block heading %}Something went wrong{% endblock %}
+{% block subheading %}The server hit an unexpected error{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="empty">
+    <h3>Internal error</h3>
+    <p>Nothing was written to the ledger. Try again, or head back to the dashboard.</p>
+    <a class="btn btn-primary" href="{{ url_for('dashboard.index') }}">Back to dashboard</a>
+  </div>
+</div>
+{% endblock %}

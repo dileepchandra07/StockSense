@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}StockSense{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="auth-body">
+  <div class="auth-shell">
+    <div class="auth-brand">
+      <span class="brand-mark">SS</span>
+      <div>
+        <strong>StockSense</strong>
+        <small>Real-time inventory across warehouses</small>
+      </div>
+    </div>
+
+    {% include "_flash.html" %}
+
+    <div class="auth-card">
+      {% block content %}{% endblock %}
+    </div>
+
+    <p class="auth-foot">
+      Odoo Hackathon 2026 &middot;
+      <a href="https://github.com/dileepchandra07/StockSense">GitHub</a>
+    </p>
+  </div>
+</body>
+</html>

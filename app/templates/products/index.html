@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui with context %}
+{% block title %}Products · StockSense{% endblock %}
+{% block heading %}Products{% endblock %}
+{% block subheading %}{{ products|length }} product{{ '' if products|length == 1 else 's' }} in the catalogue{% endblock %}
+
+{% block actions %}
+  <a class="btn btn-primary" href="{{ url_for('products.create') }}">New product</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+  <form class="filters" method="get">
+    <div class="field grow">
+      <label for="q">Search</label>
+      <input id="q" name="q" type="search" value="{{ search }}" placeholder="SKU or product name">
+    </div>
+    <div class="field">
+      <label for="category">Category</label>
+      <select id="category" name="category">
+        <option value="">All categories</option>
+        {% for c in categories %}
+          <option value="{{ c['id'] }}" {{ 'selected' if category_id == c['id'] }}>{{ c['name'] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="stock">Stock level</label>
+      <select id="stock" name="stock">
+        <option value="">Any</option>
+        <option value="in"  {{ 'selected' if stock_filter == 'in' }}>In stock</option>
+        <option value="low" {{ 'selected' if stock_filter == 'low' }}>Low stock</option>
+        <option value="out" {{ 'selected' if stock_filter == 'out' }}>Out of stock</option>
+      </select>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" type="submit">Filter</button>
+      {% if search or category_id or stock_filter %}
+        <a class="btn btn-ghost" href="{{ url_for('products.index') }}">Clear</a>
+      {% endif %}
+    </div>
+  </form>
+
+  {% if products %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>SKU</th>
+        <th>Product</th>
+        <th>Category</th>
+        <th>UoM</th>
+        <th class="right">Unit cost</th>
+        <th class="right">On hand</th>
+        <th class="right">Reorder min</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in products %}
+      <tr>
+        <td><a class="sku" href="{{ url_for('products.detail', product_id=p['id']) }}">{{ p['sku'] }}</a></td>
+        <td>{{ p['name'] }}</td>
+        <td class="small muted">{{ p['category_name'] or '—' }}</td>
+        <td class="small muted">{{ p['uom'] }}</td>
+        <td class="right mono">{{ p['unit_cost']|money }}</td>
+        <td class="right strong">{{ p['on_hand']|qty }}</td>
+        <td class="right muted">{{ p['reorder_min']|qty }}</td>
+        <td>{{ ui.stock_badge(p['on_hand'], p['reorder_min']) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="table-empty">
+    No products match. <a href="{{ url_for('products.index') }}">Clear the filters</a>
+    or <a href="{{ url_for('products.create') }}">create a product</a>.
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Categories</h2>
+    <span class="hint">{{ categories|length }} defined</span>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('products.add_category') }}" class="btn-row">
+      <input name="name" type="text" placeholder="New category name" required style="max-width:280px">
+      <button class="btn" type="submit">Add category</button>
+    </form>
+
+    {% if categories %}
+      <div class="row" style="margin-top:14px">
+        {% for c in categories %}<span class="tag">{{ c['name'] }}</span>{% endfor %}
+      </div>
+    {% else %}
+      <p class="muted small" style="margin:14px 0 0">No categories yet. They are optional, but they make the dashboard filters useful.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

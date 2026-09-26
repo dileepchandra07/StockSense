@@ -1,0 +1,9 @@
+# StockSense application dependencies.
+#
+# Deliberately short. The domain logic has no dependencies at all -- see
+# reference/stock_engine.py, which runs on the standard library alone.
+
+Flask>=3.0,<4.0
+
+# Production server. Not needed for `python run.py`.
+gunicorn>=21.0

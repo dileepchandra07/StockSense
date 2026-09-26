@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui with context %}
+{% block title %}{{ meta.plural }} · StockSense{% endblock %}
+{% block heading %}{{ meta.plural }}{% endblock %}
+{% block subheading %}
+  {% if doc_type == 'receipt' %}
+    Goods arriving from vendors — validating increases stock
+  {% elif doc_type == 'delivery' %}
+    Goods leaving for customers — validating decreases stock
+  {% elif doc_type == 'internal' %}
+    Stock moving inside the company — the total never changes
+  {% else %}
+    Reconciling recorded stock against a physical count
+  {% endif %}
+{% endblock %}
+
+{% block actions %}
+  <a class="btn btn-primary" href="{{ url_for('operations.create', doc_type=doc_type) }}">New {{ meta.label|lower }}</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+  <form class="filters" method="get">
+    <div class="field">
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        <option value="">All statuses</option>
+        {% for s in STATUSES %}
+          <option value="{{ s }}" {{ 'selected' if filters.status == s }}>{{ STATUS_LABELS[s] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="warehouse">Warehouse</label>
+      <select id="warehouse" name="warehouse">
+        <option value="">All warehouses</option>
+        {% for w in warehouses %}
+          <option value="{{ w['id'] }}" {{ 'selected' if filters.warehouse_id == w['id'] }}>{{ w['code'] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="category">Category</label>
+      <select id="category" name="category">
+        <option value="">All categories</option>
+        {% for c in categories %}
+          <option value="{{ c['id'] }}" {{ 'selected' if filters.category_id == c['id'] }}>{{ c['name'] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field grow">
+      <label for="q">Search</label>
+      <input id="q" name="q" type="search" value="{{ filters.search or '' }}" placeholder="Reference or supplier">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" type="submit">Filter</button>
+      {% if has_filters %}<a class="btn btn-ghost" href="{{ url_for('operations.listing', doc_type=doc_type) }}">Clear</a>{% endif %}
+    </div>
+  </form>
+
+  {% if documents %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Reference</th><th>Status</th><th>Route</th>
+        <th class="right">Lines</th><th class="right">Qty</th>
+        <th>Created</th><th>Validated</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in documents %}
+      <tr>
+        <td><a class="mono" href="{{ url_for('operations.detail', document_id=d['id']) }}">{{ d['reference'] }}</a></td>
+        <td>{{ ui.status_badge(d['status']) }}</td>
+        <td class="small">{{ ui.doc_route(d) }}</td>
+        <td class="right">{{ d['line_count'] }}</td>
+        <td class="right strong">{{ d['total_qty']|qty }}</td>
+        <td class="small muted nowrap">{{ d['created_at'][:16] }}</td>
+        <td class="small muted nowrap">{{ d['validated_at'][:16] if d['validated_at'] else '—' }}</td>
+        <td class="right">
+          <a class="btn btn-sm" href="{{ url_for('operations.detail', document_id=d['id']) }}">Open</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="table-empty">
+    Nothing here yet.
+    <a href="{{ url_for('operations.create', doc_type=doc_type) }}">Create a {{ meta.label|lower }}</a>.
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
